@@ -1,8 +1,8 @@
-from .user import User, UserRole
-from .wallet import Wallet
-from .shop import Shop
-from .category import Category
-from .product import Product
-from .order import Order
-from .payment import Payment
-from .delivery import Delivery 
+from models.user import User, UserRole
+from models.wallet import Wallet
+from models.shop import Shop
+from models.category import Category
+from models.product import Product
+from models.order import Order
+from models.payment import Payment
+from models.delivery import Delivery 

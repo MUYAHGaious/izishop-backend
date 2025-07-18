@@ -3,9 +3,9 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
-from ..models.user import User
-from ..schemas.user import TokenData
-from ..core.config import settings
+from models.user import User
+from schemas.user import TokenData
+from core.config import settings
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

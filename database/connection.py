@@ -1,8 +1,8 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
-from .base import Base
-from ..core.config import settings
+from database.base import Base
+from core.config import settings
 
 # Create database engine
 engine = create_engine(

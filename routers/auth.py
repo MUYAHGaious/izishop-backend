@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 from datetime import timedelta
 from typing import Optional
 
-from ..database.connection import get_db
-from ..services.auth import (
+from database.connection import get_db
+from services.auth import (
     authenticate_user, 
     create_user, 
     create_access_token, 
@@ -13,8 +13,8 @@ from ..services.auth import (
     update_last_login,
     get_user_by_email
 )
-from ..schemas.user import UserLogin, UserRegister, Token, UserResponse
-from ..core.config import settings
+from schemas.user import UserLogin, UserRegister, Token, UserResponse
+from core.config import settings
 
 router = APIRouter()
 security = HTTPBearer()
