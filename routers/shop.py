@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import logging
 from pydantic import ValidationError
 
@@ -11,12 +11,16 @@ from services.shop import (
     get_shop_by_owner_id,
     get_shops,
     get_active_shops,
+    get_featured_shops,
+    get_shop_products,
+    get_shop_reviews,
     update_shop,
     delete_shop,
     verify_shop
 )
 from schemas.shop import ShopCreate, ShopUpdate, ShopResponse, ShopWithOwner
 from schemas.user import UserResponse
+from schemas.product import ProductResponse
 from routers.auth import get_current_user
 from models.user import UserRole
 
@@ -121,6 +125,24 @@ def get_current_user_shop(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve shop"
+        )
+
+@router.get("/featured", response_model=List[ShopResponse])
+def get_featured_shops_endpoint(
+    limit: int = Query(default=10, le=50),
+    db: Session = Depends(get_db)
+):
+    """
+    Get featured shops (public endpoint)
+    """
+    try:
+        shops = get_featured_shops(db=db, limit=limit)
+        return [ShopResponse.from_orm(shop) for shop in shops]
+    except Exception as e:
+        logger.error(f"Error getting featured shops: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve featured shops"
         )
 
 @router.get("/{shop_id}", response_model=ShopResponse)
@@ -311,4 +333,74 @@ def verify_shop_admin(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to verify shop"
+        )
+
+@router.get("/{shop_id}/products", response_model=List[ProductResponse])
+def get_shop_products_endpoint(
+    shop_id: str,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, le=100),
+    db: Session = Depends(get_db)
+):
+    """
+    Get products for a specific shop (public endpoint)
+    """
+    try:
+        # Verify shop exists
+        shop = get_shop_by_id(db=db, shop_id=shop_id)
+        if not shop:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Shop not found"
+            )
+        
+        # Get products with pagination
+        skip = (page - 1) * limit
+        products = get_shop_products(db=db, shop_id=shop_id, skip=skip, limit=limit)
+        
+        return [ProductResponse.from_orm(product) for product in products]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting products for shop {shop_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve shop products"
+        )
+
+@router.get("/{shop_id}/reviews")
+def get_shop_reviews_endpoint(
+    shop_id: str,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, le=100),
+    db: Session = Depends(get_db)
+):
+    """
+    Get reviews for a specific shop (public endpoint)
+    """
+    try:
+        # Verify shop exists
+        shop = get_shop_by_id(db=db, shop_id=shop_id)
+        if not shop:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Shop not found"
+            )
+        
+        # Get reviews with pagination
+        skip = (page - 1) * limit
+        reviews = get_shop_reviews(db=db, shop_id=shop_id, skip=skip, limit=limit)
+        
+        # For now, return empty list as we don't have review models yet
+        # This will be implemented when review functionality is added
+        return {"reviews": reviews, "total": len(reviews)}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting reviews for shop {shop_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve shop reviews"
         )

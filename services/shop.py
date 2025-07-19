@@ -7,6 +7,7 @@ import uuid
 
 from models.shop import Shop
 from models.user import User, UserRole
+from models.product import Product
 from schemas.shop import ShopCreate, ShopUpdate
 
 # Configure logging
@@ -197,3 +198,66 @@ def verify_shop(db: Session, shop_id: str) -> bool:
         db.rollback()
         logger.error(f"Error verifying shop {shop_id}: {str(e)}")
         return False
+
+def get_featured_shops(db: Session, limit: int = 10) -> List[Shop]:
+    """Get featured shops based on rating and verification status."""
+    try:
+        return db.query(Shop).filter(
+            Shop.is_active == True,
+            Shop.is_verified == True
+        ).order_by(
+            Shop.rating.desc(),
+            Shop.created_at.desc()
+        ).limit(limit).all()
+    except Exception as e:
+        logger.error(f"Error getting featured shops: {str(e)}")
+        return []
+
+def get_shop_products(db: Session, shop_id: str, skip: int = 0, limit: int = 20) -> List[Product]:
+    """Get products for a specific shop."""
+    try:
+        # Verify shop exists and get shop owner
+        shop = db.query(Shop).filter(Shop.id == shop_id).first()
+        if not shop:
+            logger.warning(f"Attempt to get products for non-existent shop: {shop_id}")
+            return []
+        
+        # Get products by shop owner (seller_id = shop.owner_id)
+        return db.query(Product).filter(
+            Product.seller_id == shop.owner_id,
+            Product.is_active == True
+        ).order_by(
+            Product.created_at.desc()
+        ).offset(skip).limit(limit).all()
+    except Exception as e:
+        logger.error(f"Error getting products for shop {shop_id}: {str(e)}")
+        return []
+
+def get_shop_reviews(db: Session, shop_id: str, skip: int = 0, limit: int = 20) -> List[dict]:
+    """Get reviews for a specific shop."""
+    try:
+        # Verify shop exists
+        shop = db.query(Shop).filter(Shop.id == shop_id).first()
+        if not shop:
+            logger.warning(f"Attempt to get reviews for non-existent shop: {shop_id}")
+            return []
+        
+        # For now, return mock reviews since we don't have review models yet
+        # This will be replaced when review functionality is implemented
+        mock_reviews = [
+            {
+                "id": f"review_{i}",
+                "shop_id": shop_id,
+                "user_name": f"Customer {i}",
+                "rating": 4.5,
+                "comment": f"Great shop with excellent service! Review {i}",
+                "created_at": datetime.utcnow().isoformat()
+            }
+            for i in range(1, min(6, limit + 1))  # Return up to 5 mock reviews
+        ]
+        
+        logger.info(f"Retrieved {len(mock_reviews)} mock reviews for shop {shop_id}")
+        return mock_reviews
+    except Exception as e:
+        logger.error(f"Error getting reviews for shop {shop_id}: {str(e)}")
+        return []

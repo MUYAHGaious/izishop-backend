@@ -34,7 +34,7 @@ def upgrade() -> None:
     sa.UniqueConstraint('name')
     )
     op.create_table('users',
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', sa.String(), nullable=False),
     sa.Column('email', sa.String(), nullable=False),
     sa.Column('phone', sa.String(), nullable=True),
     sa.Column('password_hash', sa.String(), nullable=False),
@@ -54,15 +54,15 @@ def upgrade() -> None:
     op.create_index(op.f('ix_users_id'), 'users', ['id'], unique=False)
     op.create_index(op.f('ix_users_phone'), 'users', ['phone'], unique=True)
     op.create_table('shops',
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('owner_id', sa.UUID(), nullable=False),
+    sa.Column('id', sa.String(), nullable=False),
+    sa.Column('owner_id', sa.String(), nullable=False),
     sa.Column('name', sa.String(), nullable=False),
-    sa.Column('description', sa.String(), nullable=False),
+    sa.Column('description', sa.Text(), nullable=True),
     sa.Column('logo_url', sa.String(), nullable=True),
     sa.Column('banner_url', sa.String(), nullable=True),
-    sa.Column('contact_email', sa.String(), nullable=False),
-    sa.Column('contact_phone', sa.String(), nullable=False),
-    sa.Column('address', sa.String(), nullable=False),
+    sa.Column('email', sa.String(), nullable=True),
+    sa.Column('phone', sa.String(), nullable=True),
+    sa.Column('address', sa.String(), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=True),
     sa.Column('is_verified', sa.Boolean(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
