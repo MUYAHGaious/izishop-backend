@@ -37,7 +37,15 @@ def create_shop(db: Session, shop_data: ShopCreate, owner_id: str) -> Shop:
         name_exists = db.query(Shop).filter(Shop.name == shop_data.name).first()
         if name_exists:
             logger.warning(f"Attempt to create shop with existing name: {shop_data.name}")
-            raise ValueError("Shop name already exists")
+            # Suggest alternative names
+            suggested_names = []
+            for i in range(1, 4):
+                suggestion = f"{shop_data.name} ({i})"
+                if not db.query(Shop).filter(Shop.name == suggestion).first():
+                    suggested_names.append(suggestion)
+            
+            suggestion_text = f" Try: {', '.join(suggested_names[:2])}" if suggested_names else ""
+            raise ValueError(f"Shop name '{shop_data.name}' is already taken.{suggestion_text}")
         
         # Create shop object
         db_shop = Shop(
@@ -100,6 +108,17 @@ def get_shop_by_name(db: Session, name: str) -> Optional[Shop]:
         return db.query(Shop).filter(Shop.name == name).first()
     except Exception as e:
         logger.error(f"Error getting shop by name {name}: {str(e)}")
+        return None
+
+def get_shop_by_phone(db: Session, phone: str) -> Optional[Shop]:
+    """Get a shop by phone number with error handling."""
+    try:
+        # Clean phone number (remove all non-digit characters)
+        import re
+        clean_phone = re.sub(r'\D', '', phone)
+        return db.query(Shop).filter(Shop.phone == clean_phone).first()
+    except Exception as e:
+        logger.error(f"Error getting shop by phone {phone}: {str(e)}")
         return None
 
 def get_shops(db: Session, skip: int = 0, limit: int = 100) -> List[Shop]:

@@ -32,20 +32,16 @@ def create_user_product(
     current_user: UserResponse = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Create a new product (shop owners only)"""
+    """Create a new product (anyone can post, auto-assigns to shop if user is shop owner)"""
     try:
-        # Verify user is a shop owner
-        if current_user.role != UserRole.SHOP_OWNER:
-            logger.warning(f"Non-shop-owner attempted to create product: {current_user.email}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only shop owners can create products"
-            )
-        
-        # Create the product
+        # Create the product - anyone can create products now
         product = create_product(db=db, product_data=product_data, seller_id=current_user.id)
         
-        logger.info(f"Product created successfully: {product.name} by {current_user.email}")
+        # Log creation with appropriate context
+        if current_user.role == UserRole.SHOP_OWNER:
+            logger.info(f"Product created by shop owner: {product.name} by {current_user.email}")
+        else:
+            logger.info(f"Product created by individual seller: {product.name} by {current_user.email}")
         
         return ProductResponse.from_orm(product)
         
@@ -72,13 +68,6 @@ def get_my_products(
 ):
     """Get current user's products"""
     try:
-        # Verify user is a shop owner
-        if current_user.role != UserRole.SHOP_OWNER:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only shop owners can access product data"
-            )
-        
         products = get_products_by_seller(
             db=db, 
             seller_id=current_user.id, 
@@ -105,13 +94,6 @@ def get_my_product_stats(
 ):
     """Get product statistics for current user"""
     try:
-        # Verify user is a shop owner
-        if current_user.role != UserRole.SHOP_OWNER:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only shop owners can access product statistics"
-            )
-        
         stats = get_seller_product_stats(db=db, seller_id=current_user.id)
         
         return stats
@@ -181,13 +163,6 @@ def update_user_product(
 ):
     """Update a product (only by the seller)"""
     try:
-        # Verify user is a shop owner
-        if current_user.role != UserRole.SHOP_OWNER:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only shop owners can update products"
-            )
-        
         # Update the product
         updated_product = update_product(
             db=db, 
@@ -229,13 +204,6 @@ def delete_user_product(
 ):
     """Delete a product (only by the seller)"""
     try:
-        # Verify user is a shop owner
-        if current_user.role != UserRole.SHOP_OWNER:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only shop owners can delete products"
-            )
-        
         # Delete the product
         success = delete_product(db=db, product_id=product_id, seller_id=current_user.id)
         
@@ -267,13 +235,6 @@ def update_product_stock_quantity(
 ):
     """Update product stock quantity"""
     try:
-        # Verify user is a shop owner
-        if current_user.role != UserRole.SHOP_OWNER:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only shop owners can update product stock"
-            )
-        
         # Update stock
         updated_product = update_product_stock(
             db=db, 

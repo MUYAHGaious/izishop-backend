@@ -266,4 +266,65 @@ def logout(current_user: UserResponse = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Error during logout: {str(e)}")
         # Return success anyway since logout is client-side
-        return {"message": "Successfully logged out"} 
+        return {"message": "Successfully logged out"}
+
+@router.get("/check-email/{email}")
+def check_email_availability(email: str, db: Session = Depends(get_db)):
+    """Check if email is available for registration."""
+    try:
+        # URL decode the email
+        from urllib.parse import unquote
+        decoded_email = unquote(email)
+        
+        logger.info(f"Checking email availability for: {decoded_email}")
+        
+        # Validate email format
+        import re
+        email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_regex, decoded_email):
+            logger.warning(f"Invalid email format: {decoded_email}")
+            return {"available": False, "message": "Invalid email format"}
+        
+        existing_user = get_user_by_email(db, email=decoded_email)
+        available = existing_user is None
+        
+        return {
+            "available": available,
+            "message": "Email is available" if available else "Email is already registered"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking email availability: {str(e)}")
+        return {"available": False, "message": "Unable to check email availability"}
+
+@router.get("/check-phone/{phone}")
+def check_phone_availability(phone: str, db: Session = Depends(get_db)):
+    """Check if phone number is available for registration."""
+    try:
+        # URL decode the phone number
+        from urllib.parse import unquote
+        decoded_phone = unquote(phone)
+        
+        logger.info(f"Checking phone availability for: {decoded_phone}")
+        
+        # Clean phone number (remove all non-digit characters for comparison)
+        import re
+        clean_phone = re.sub(r'\D', '', decoded_phone)
+        
+        # Validate phone number format (must be between 9 and 15 digits)
+        if len(clean_phone) < 9 or len(clean_phone) > 15:
+            return {"available": False, "message": "Phone number must be between 9 and 15 digits"}
+        
+        # Check if phone exists in database
+        from services.auth import get_user_by_phone
+        existing_user = get_user_by_phone(db, phone=clean_phone)
+        available = existing_user is None
+        
+        return {
+            "available": available,
+            "message": "Phone number is available" if available else "Phone number is already registered"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking phone availability: {str(e)}")
+        return {"available": False, "message": "Unable to check phone availability"} 

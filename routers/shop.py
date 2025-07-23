@@ -404,3 +404,101 @@ def get_shop_reviews_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve shop reviews"
         )
+
+@router.get("/check-name/{shop_name}")
+def check_shop_name_availability(shop_name: str, db: Session = Depends(get_db)):
+    """Check if shop name is available."""
+    try:
+        # URL decode the shop name
+        from urllib.parse import unquote
+        decoded_name = unquote(shop_name)
+        
+        # Clean and validate shop name
+        clean_name = decoded_name.strip()
+        if len(clean_name) < 2:
+            return {"available": False, "message": "Shop name must be at least 2 characters"}
+        
+        if len(clean_name) > 100:
+            return {"available": False, "message": "Shop name must not exceed 100 characters"}
+        
+        # Check if name exists
+        from services.shop import get_shop_by_name
+        existing_shop = get_shop_by_name(db, name=clean_name)
+        available = existing_shop is None
+        
+        suggestions = []
+        if not available:
+            # Generate suggestions
+            for i in range(1, 4):
+                suggestion = f"{clean_name} ({i})"
+                if not get_shop_by_name(db, name=suggestion):
+                    suggestions.append(suggestion)
+        
+        return {
+            "available": available,
+            "message": "Shop name is available" if available else "Shop name is already taken",
+            "suggestions": suggestions[:2] if suggestions else []
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking shop name availability: {str(e)}")
+        return {"available": False, "message": "Unable to check shop name availability"}
+
+@router.get("/check-phone/{phone}")
+def check_shop_phone_availability(phone: str, db: Session = Depends(get_db)):
+    """Check if shop phone number is available."""
+    try:
+        # URL decode the phone number
+        from urllib.parse import unquote
+        decoded_phone = unquote(phone)
+        
+        # Clean phone number (remove all non-digit characters for comparison)
+        import re
+        clean_phone = re.sub(r'\D', '', decoded_phone)
+        
+        # Validate phone number format (must be between 9 and 15 digits)
+        if len(clean_phone) < 9 or len(clean_phone) > 15:
+            return {"available": False, "message": "Phone number must be between 9 and 15 digits"}
+        
+        # Check if phone exists in shops
+        from services.shop import get_shop_by_phone
+        existing_shop = get_shop_by_phone(db, phone=clean_phone)
+        available = existing_shop is None
+        
+        return {
+            "available": available,
+            "message": "Phone number is available" if available else "Phone number is already used by another shop",
+            "suggestions": []
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking shop phone availability: {str(e)}")
+        return {"available": False, "message": "Unable to check phone availability"}
+
+@router.get("/check-license/{license_number}")
+def check_business_license_availability(license_number: str, db: Session = Depends(get_db)):
+    """Check if business license number is available."""
+    try:
+        # URL decode the license number
+        from urllib.parse import unquote
+        decoded_license = unquote(license_number)
+        
+        # Clean and validate license number
+        clean_license = decoded_license.strip()
+        if len(clean_license) < 3:
+            return {"available": False, "message": "Business license must be at least 3 characters"}
+        
+        if len(clean_license) > 50:
+            return {"available": False, "message": "Business license must not exceed 50 characters"}
+        
+        # For now, we'll just validate format since there's no license field in database
+        # This can be extended to check against a business registry API or database
+        return {
+            "available": True,
+            "message": "Business license format is valid",
+            "suggestions": []
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking business license availability: {str(e)}")
+        return {"available": False, "message": "Unable to check business license"}

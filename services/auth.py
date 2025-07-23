@@ -123,6 +123,17 @@ def get_user_by_email(db: Session, email: str) -> Optional[User]:
         logger.error(f"Error getting user by email {email}: {str(e)}")
         return None
 
+def get_user_by_phone(db: Session, phone: str) -> Optional[User]:
+    """Get a user by phone number with proper error handling."""
+    try:
+        # Clean phone number (remove all non-digit characters)
+        import re
+        clean_phone = re.sub(r'\D', '', phone)
+        return db.query(User).filter(User.phone == clean_phone).first()
+    except Exception as e:
+        logger.error(f"Error getting user by phone {phone}: {str(e)}")
+        return None
+
 def create_user(db: Session, email: str, password: str, first_name: str, last_name: str, 
                 role: UserRole, phone: Optional[str] = None) -> User:
     """Create a new user with comprehensive validation and error handling."""
