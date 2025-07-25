@@ -7,6 +7,7 @@ class Settings:
     # Security Configuration
     SECRET_KEY: str = config("SECRET_KEY", default="your-secret-key-here-change-in-production")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = config("ACCESS_TOKEN_EXPIRE_MINUTES", default=30, cast=int)
+    ADMIN_ACCESS_CODE: str = config("ADMIN_ACCESS_CODE", default="ADMIN2024!")
     
     # API Configuration
     TRANZAK_API_KEY: str = config("TRANZAK_API_KEY", default="")

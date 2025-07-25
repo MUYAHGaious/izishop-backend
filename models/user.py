@@ -35,4 +35,5 @@ class User(Base):
     orders_as_customer = relationship("Order", back_populates="customer", foreign_keys="Order.customer_id")
     products_as_seller = relationship("Product", back_populates="seller", foreign_keys="Product.seller_id")
     deliveries_assigned = relationship("Delivery", back_populates="delivery_agent", foreign_keys="Delivery.delivery_agent_id")
-    wallet = relationship("Wallet", uselist=False, back_populates="user") 
+    wallet = relationship("Wallet", uselist=False, back_populates="user")
+    ratings = relationship("Rating", back_populates="user") 

@@ -458,7 +458,7 @@ def check_shop_phone_availability(phone: str, db: Session = Depends(get_db)):
         
         # Validate phone number format (must be between 9 and 15 digits)
         if len(clean_phone) < 9 or len(clean_phone) > 15:
-            return {"available": False, "message": "Phone number must be between 9 and 15 digits"}
+            return {"available": False, "message": "Phone number must contain 9 to 15 digits (letters and symbols are not allowed)"}
         
         # Check if phone exists in shops
         from services.shop import get_shop_by_phone

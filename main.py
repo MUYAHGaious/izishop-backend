@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from database.connection import create_tables
-from routers import auth, admin, shop, product
+from routers import auth, admin, shop, product, rating
 import logging
 from pydantic import ValidationError
 
@@ -78,6 +78,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(shop.router, prefix="/api/shops", tags=["Shops"])
 app.include_router(product.router, prefix="/api/products", tags=["Products"])
+app.include_router(rating.router, tags=["Ratings"])
 
 # Create database tables on startup
 @app.on_event("startup")

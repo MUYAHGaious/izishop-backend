@@ -9,9 +9,10 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from backend.core.config import settings
-from backend.models import user, wallet, shop, category, product, order, payment, delivery
-from backend.database.base import Base
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from core.config import settings
+from models import user, wallet, shop, category, product, order, payment, delivery, rating
+from database.base import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

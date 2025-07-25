@@ -18,6 +18,7 @@ from services.auth import (
 from schemas.user import UserLogin, UserRegister, Token, UserResponse
 from core.config import settings
 from models.user import UserRole
+from pydantic import BaseModel
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +26,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 security = HTTPBearer(auto_error=False)
+
+# Admin Login Schema
+class AdminLogin(BaseModel):
+    email: str
+    password: str
+    admin_code: str
 
 # Dependency to get current user
 def get_current_user(
@@ -244,6 +251,92 @@ def login(user_credentials: UserLogin, request: Request, db: Session = Depends(g
             detail="An unexpected error occurred. Please try again."
         )
 
+@router.post("/admin-login", response_model=Token)
+def admin_login(admin_credentials: AdminLogin, request: Request, db: Session = Depends(get_db)):
+    """Admin login with access code verification."""
+    try:
+        # Log admin login attempt
+        logger.info(f"Admin login attempt for email: {admin_credentials.email}")
+        
+        # Validate credentials
+        if not admin_credentials.email or not admin_credentials.password or not admin_credentials.admin_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email, password, and admin access code are required"
+            )
+        
+        # Verify admin access code
+        if admin_credentials.admin_code != settings.ADMIN_ACCESS_CODE:
+            logger.warning(f"Invalid admin access code attempt for email: {admin_credentials.email}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid admin access code",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Authenticate user
+        user = authenticate_user(db, admin_credentials.email, admin_credentials.password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Check if user is admin
+        if user.role != UserRole.ADMIN:
+            logger.warning(f"Non-admin user attempted admin login: {admin_credentials.email}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account is not authorized for admin access"
+            )
+        
+        # Check if user is active
+        if not user.is_active:
+            logger.warning(f"Admin login attempt with inactive account: {admin_credentials.email}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account is inactive. Please contact support."
+            )
+        
+        # Update last login
+        update_last_login(db, user)
+        
+        # Create access token
+        access_token_expires = timedelta(
+            minutes=getattr(settings, 'ACCESS_TOKEN_EXPIRE_MINUTES', 30)
+        )
+        access_token = create_access_token(
+            data={"sub": user.email, "user_id": str(user.id)},
+            expires_delta=access_token_expires
+        )
+        
+        logger.info(f"Admin logged in successfully: {user.email}")
+        
+        return Token(
+            access_token=access_token,
+            token_type="bearer",
+            user=UserResponse.from_orm(user)
+        )
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except ValidationError as e:
+        # Handle Pydantic validation errors
+        logger.error(f"Validation error during admin login: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid admin login data format"
+        )
+    except Exception as e:
+        # Handle unexpected errors
+        logger.error(f"Unexpected error during admin login: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred. Please try again."
+        )
+
 @router.get("/me", response_model=UserResponse)
 def get_current_user_info(current_user: UserResponse = Depends(get_current_user)):
     """Get current user information."""
@@ -313,7 +406,7 @@ def check_phone_availability(phone: str, db: Session = Depends(get_db)):
         
         # Validate phone number format (must be between 9 and 15 digits)
         if len(clean_phone) < 9 or len(clean_phone) > 15:
-            return {"available": False, "message": "Phone number must be between 9 and 15 digits"}
+            return {"available": False, "message": "Phone number must contain 9 to 15 digits (letters and symbols are not allowed)"}
         
         # Check if phone exists in database
         from services.auth import get_user_by_phone

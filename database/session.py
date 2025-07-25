@@ -1,21 +1,19 @@
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
 from decouple import config
 
-DATABASE_URL = config("DATABASE_URL")
+DATABASE_URL = config("DATABASE_URL", default="sqlite:///./izishop.db")
 
-engine = create_async_engine(DATABASE_URL, echo=True, future=True)
+engine = create_engine(DATABASE_URL, echo=True)
 
-AsyncSessionLocal = sessionmaker(
+SessionLocal = sessionmaker(
     bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autoflush=False,
-    autocommit=False
+    autocommit=False,
+    autoflush=False
 )
 
 def get_db():
-    db = AsyncSessionLocal()
+    db = SessionLocal()
     try:
         yield db
     finally:

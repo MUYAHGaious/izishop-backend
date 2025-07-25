@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Float, Integer
 from sqlalchemy.orm import relationship
 from database.base import Base
 
@@ -16,8 +16,12 @@ class Shop(Base):
     email = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
+    average_rating = Column(Float, default=0.0)
+    total_reviews = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    owner = relationship("User", back_populates="shop") 
+    owner = relationship("User", back_populates="shop")
+    ratings = relationship("Rating", back_populates="shop")
+    stats = relationship("ShopStats", uselist=False, back_populates="shop") 

@@ -28,7 +28,7 @@ class ShopCreate(ShopBase):
         # Remove all non-digit characters
         clean_phone = re.sub(r'\D', '', v)
         if len(clean_phone) < 9 or len(clean_phone) > 15:
-            raise ValueError('Phone number must be between 9 and 15 digits')
+            raise ValueError('Phone number must contain 9 to 15 digits (letters and symbols are not allowed)')
         return clean_phone
     
     @validator('email')

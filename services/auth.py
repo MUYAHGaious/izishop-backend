@@ -4,9 +4,12 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from models.user import User, UserRole
-from schemas.user import TokenData
+from schemas.user import TokenData, UserResponse
 from core.config import settings
+from database.session import get_db
 import logging
 import uuid
 
@@ -201,4 +204,83 @@ def update_last_login(db: Session, user: User):
         logger.info(f"Updated last login for user: {user.email}")
     except Exception as e:
         db.rollback()
-        logger.error(f"Error updating last login for user {user.email}: {str(e)}") 
+        logger.error(f"Error updating last login for user {user.email}: {str(e)}")
+
+# FastAPI Dependencies
+security = HTTPBearer()
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> UserResponse:
+    """Get current authenticated user."""
+    try:
+        # Extract token from credentials
+        token = credentials.credentials
+        
+        # Verify token
+        token_data = verify_token(token)
+        if not token_data:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Get user from database
+        user = db.query(User).filter(User.id == token_data.user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Inactive user"
+            )
+        
+        # Convert to UserResponse
+        return UserResponse(
+            id=user.id,
+            email=user.email,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            role=user.role,
+            is_active=user.is_active,
+            is_verified=user.is_verified,
+            phone=user.phone,
+            profile_image_url=user.profile_image_url,
+            created_at=user.created_at,
+            last_login=user.last_login
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting current user: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+def get_admin_user(current_user: UserResponse = Depends(get_current_user)) -> UserResponse:
+    """Get current user and verify admin privileges."""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions"
+        )
+    return current_user
+
+def get_shop_owner_user(current_user: UserResponse = Depends(get_current_user)) -> UserResponse:
+    """Get current user and verify shop owner privileges."""
+    if current_user.role not in [UserRole.SHOP_OWNER, UserRole.ADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions. Shop owner role required."
+        )
+    return current_user 
