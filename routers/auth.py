@@ -420,4 +420,35 @@ def check_phone_availability(phone: str, db: Session = Depends(get_db)):
         
     except Exception as e:
         logger.error(f"Error checking phone availability: {str(e)}")
-        return {"available": False, "message": "Unable to check phone availability"} 
+        return {"available": False, "message": "Unable to check phone availability"}
+
+@router.get("/profile/days-active")
+async def get_user_days_active(
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get the number of days the user has been active."""
+    try:
+        from datetime import datetime
+        
+        # Calculate days since user creation
+        if hasattr(current_user, 'created_at') and current_user.created_at:
+            created_date = current_user.created_at
+            if isinstance(created_date, str):
+                created_date = datetime.fromisoformat(created_date.replace('Z', '+00:00'))
+            
+            days_active = (datetime.now() - created_date.replace(tzinfo=None)).days + 1
+        else:
+            # Fallback: try to get from database
+            from models.user import User
+            user = db.query(User).filter(User.id == current_user.id).first()
+            if user and user.created_at:
+                days_active = (datetime.now() - user.created_at).days + 1
+            else:
+                days_active = 1  # Default for new users
+        
+        return {"days_active": max(1, days_active)}
+        
+    except Exception as e:
+        logger.error(f"Error getting user days active: {str(e)}")
+        return {"days_active": 1}  # Default fallback 

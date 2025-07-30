@@ -102,6 +102,14 @@ def get_shop_by_owner_id(db: Session, owner_id: str) -> Optional[Shop]:
         logger.error(f"Error getting shop by owner ID {owner_id}: {str(e)}")
         return None
 
+def get_shops_by_owner_id(db: Session, owner_id: str) -> List[Shop]:
+    """Get all shops by owner ID (supports multiple shops per owner)."""
+    try:
+        return db.query(Shop).filter(Shop.owner_id == owner_id).all()
+    except Exception as e:
+        logger.error(f"Error getting shops by owner ID {owner_id}: {str(e)}")
+        return []
+
 def get_shop_by_name(db: Session, name: str) -> Optional[Shop]:
     """Get a shop by name with error handling."""
     try:
@@ -225,7 +233,7 @@ def get_featured_shops(db: Session, limit: int = 10) -> List[Shop]:
             Shop.is_active == True,
             Shop.is_verified == True
         ).order_by(
-            Shop.rating.desc(),
+            Shop.average_rating.desc(),
             Shop.created_at.desc()
         ).limit(limit).all()
     except Exception as e:

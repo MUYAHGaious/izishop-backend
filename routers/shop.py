@@ -127,6 +127,37 @@ def get_current_user_shop(
             detail="Failed to retrieve shop"
         )
 
+@router.get("/my-shops", response_model=List[ShopResponse])
+def get_current_user_shops(
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all shops owned by the current user (supports multiple shops per user)
+    """
+    try:
+        # Verify user is a shop owner
+        if current_user.role != UserRole.SHOP_OWNER:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only shop owners can access shop data"
+            )
+        
+        # Get all shops owned by user
+        from services.shop import get_shops_by_owner_id
+        shops = get_shops_by_owner_id(db=db, owner_id=current_user.id)
+        
+        return [ShopResponse.from_orm(shop) for shop in shops]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user shops: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve shops"
+        )
+
 @router.get("/featured", response_model=List[ShopResponse])
 def get_featured_shops_endpoint(
     limit: int = Query(default=10, le=50),

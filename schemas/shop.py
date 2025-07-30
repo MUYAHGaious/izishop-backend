@@ -10,6 +10,8 @@ class ShopBase(BaseModel):
     address: Optional[str] = Field(None, max_length=200)
     phone: Optional[str] = Field(None, max_length=20)
     email: Optional[str] = Field(None, max_length=100)
+    profile_photo: Optional[str] = Field(None, max_length=500)
+    background_image: Optional[str] = Field(None, max_length=500)
 
 # Shop Creation Schema
 class ShopCreate(ShopBase):
@@ -17,7 +19,7 @@ class ShopCreate(ShopBase):
     def validate_name(cls, v):
         if not v or len(v.strip()) < 2:
             raise ValueError('Shop name must be at least 2 characters long')
-        if not re.match(r'^[a-zA-Z0-9\s\-\'\&\.]+$', v.strip()):
+        if not re.match(r'^[a-zA-Z0-9\s\-\'\&\.\(\)\[\]\_\,\!\@\#\%\+]+$', v.strip()):
             raise ValueError('Shop name contains invalid characters')
         return v.strip().title()
     
@@ -47,6 +49,8 @@ class ShopUpdate(BaseModel):
     address: Optional[str] = Field(None, max_length=200)
     phone: Optional[str] = Field(None, max_length=20)
     email: Optional[str] = Field(None, max_length=100)
+    profile_photo: Optional[str] = Field(None, max_length=500)
+    background_image: Optional[str] = Field(None, max_length=500)
     is_active: Optional[bool] = None
 
 # Shop Response Schema
@@ -58,6 +62,8 @@ class ShopResponse(BaseModel):
     address: Optional[str]
     phone: Optional[str]
     email: Optional[str]
+    profile_photo: Optional[str]
+    background_image: Optional[str]
     is_active: bool
     is_verified: bool
     created_at: datetime

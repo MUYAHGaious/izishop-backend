@@ -14,6 +14,8 @@ class Shop(Base):
     address = Column(String, nullable=True)
     phone = Column(String, nullable=True)
     email = Column(String, nullable=True)
+    profile_photo = Column(String, nullable=True)  # URL/path to profile photo
+    background_image = Column(String, nullable=True)  # URL/path to background image
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
     average_rating = Column(Float, default=0.0)
@@ -24,4 +26,5 @@ class Shop(Base):
     # Relationships
     owner = relationship("User", back_populates="shop")
     ratings = relationship("Rating", back_populates="shop")
-    stats = relationship("ShopStats", uselist=False, back_populates="shop") 
+    stats = relationship("ShopStats", uselist=False, back_populates="shop")
+    orders = relationship("Order", back_populates="shop") 

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, validator
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from decimal import Decimal
 
@@ -9,6 +9,8 @@ class ProductBase(BaseModel):
     price: Decimal = Field(..., gt=0, description="Product price must be greater than 0")
     stock_quantity: int = Field(default=0, ge=0, description="Stock quantity must be non-negative")
     is_active: bool = Field(default=True, description="Whether the product is active")
+    image_urls: Optional[List[str]] = Field(default=[], description="List of product image URLs")
+    video_urls: Optional[List[str]] = Field(default=[], description="List of product video URLs")
     
     @validator('price')
     def validate_price(cls, v):
@@ -37,6 +39,8 @@ class ProductUpdate(BaseModel):
     price: Optional[Decimal] = Field(None, gt=0)
     stock_quantity: Optional[int] = Field(None, ge=0)
     is_active: Optional[bool] = None
+    image_urls: Optional[List[str]] = Field(None, description="List of product image URLs")
+    video_urls: Optional[List[str]] = Field(None, description="List of product video URLs")
     
     @validator('price')
     def validate_price(cls, v):
@@ -58,6 +62,8 @@ class ProductResponse(BaseModel):
     price: Decimal
     stock_quantity: int
     is_active: bool
+    image_urls: Optional[List[str]] = []
+    video_urls: Optional[List[str]] = []
     created_at: datetime
     updated_at: datetime
     
