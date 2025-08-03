@@ -5,6 +5,7 @@ import logging
 from pydantic import ValidationError
 
 from database.connection import get_db
+from models.shop import Shop
 from services.shop import (
     create_shop, 
     get_shop_by_id, 
@@ -19,6 +20,9 @@ from services.shop import (
     verify_shop
 )
 from schemas.shop import ShopCreate, ShopUpdate, ShopResponse, ShopWithOwner
+from pydantic import BaseModel
+from core.response import success_response, empty_data_response, error_response
+from core.exceptions import ResourceNotFoundError, BusinessLogicError
 from schemas.user import UserResponse
 from schemas.product import ProductResponse
 from routers.auth import get_current_user
@@ -29,6 +33,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+class PaginatedShopsResponse(BaseModel):
+    shops: List[ShopResponse]
+    total: int
+    page: int
+    limit: int
+    has_more: bool
 
 @router.post("/create", response_model=ShopResponse, status_code=status.HTTP_201_CREATED)
 def create_user_shop(
@@ -201,7 +212,24 @@ def get_shop(shop_id: str, db: Session = Depends(get_db)):
             detail="Failed to retrieve shop"
         )
 
-@router.get("/", response_model=List[ShopResponse])
+@router.get("/debug/count")
+def get_shops_count(db: Session = Depends(get_db)):
+    """Debug endpoint to check shop counts"""
+    try:
+        from sqlalchemy import func
+        total_shops = db.query(func.count(Shop.id)).scalar()
+        active_shops = db.query(func.count(Shop.id)).filter(Shop.is_active == True).scalar()
+        
+        return {
+            "total_shops": total_shops,
+            "active_shops": active_shops,
+            "message": f"Found {total_shops} total shops, {active_shops} active"
+        }
+    except Exception as e:
+        logger.error(f"Error counting shops: {str(e)}")
+        return {"error": str(e)}
+
+@router.get("/")
 def get_all_shops(
     skip: int = 0,
     limit: int = 100,
@@ -209,21 +237,69 @@ def get_all_shops(
     db: Session = Depends(get_db)
 ):
     """
-    Get all shops (public endpoint)
+    Get all shops with proper empty data handling (public endpoint)
     """
     try:
+        logger.info(f"Getting shops with skip={skip}, limit={limit}, active_only={active_only}")
+        
+        # Get total count first
+        from sqlalchemy import func
         if active_only:
+            total_count = db.query(func.count(Shop.id)).filter(Shop.is_active == True).scalar() or 0
             shops = get_active_shops(db=db, skip=skip, limit=limit)
         else:
+            total_count = db.query(func.count(Shop.id)).scalar() or 0
             shops = get_shops(db=db, skip=skip, limit=limit)
         
-        return [ShopResponse.from_orm(shop) for shop in shops]
+        logger.info(f"Found {len(shops)} shops out of {total_count} total")
+        
+        # Handle empty data case
+        if not shops:
+            if total_count == 0:
+                return empty_data_response(
+                    data_type="shops",
+                    reason="No shops have been created yet",
+                    suggestions=[
+                        "Be the first to create a shop",
+                        "Check back later for new shops",
+                        "Contact support if this seems incorrect"
+                    ]
+                )
+            else:
+                return empty_data_response(
+                    data_type="shops",
+                    reason="No shops match the current criteria",
+                    suggestions=[
+                        "Try adjusting your search criteria",
+                        "Check if filters are too restrictive",
+                        "Browse all shops instead"
+                    ]
+                )
+        
+        # Convert to response format
+        shop_data = [ShopResponse.from_orm(shop) for shop in shops]
+        
+        return success_response(
+            data=shop_data,
+            message=f"Retrieved {len(shop_data)} shops successfully",
+            meta={
+                "total_count": total_count,
+                "returned_count": len(shop_data),
+                "has_more": (skip + len(shop_data)) < total_count,
+                "pagination": {
+                    "skip": skip,
+                    "limit": limit,
+                    "page": (skip // limit) + 1 if limit > 0 else 1
+                }
+            }
+        )
         
     except Exception as e:
         logger.error(f"Error getting shops: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve shops"
+        return error_response(
+            message="Failed to retrieve shops",
+            error_code="SHOP_RETRIEVAL_ERROR",
+            details={"error": str(e)}
         )
 
 @router.put("/my-shop", response_model=ShopResponse)

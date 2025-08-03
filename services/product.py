@@ -23,7 +23,9 @@ def create_product(db: Session, product_data: ProductCreate, seller_id: str) -> 
             description=product_data.description,
             price=product_data.price,
             stock_quantity=product_data.stock_quantity,
-            is_active=product_data.is_active
+            is_active=product_data.is_active,
+            image_urls=product_data.image_urls if hasattr(product_data, 'image_urls') else None,
+            video_urls=product_data.video_urls if hasattr(product_data, 'video_urls') else None
         )
         
         db.add(product)

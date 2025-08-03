@@ -4,6 +4,9 @@ from typing import List, Optional
 import logging
 
 from database.connection import get_db
+from core.response import success_response, empty_data_response, error_response
+from core.exceptions import ResourceNotFoundError, BusinessLogicError
+from sqlalchemy import func
 from services.product import (
     create_product,
     get_product_by_id,
@@ -266,4 +269,99 @@ def update_product_stock_quantity(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update product stock"
+        )
+
+@router.get("/my-stats")
+def get_my_product_stats(
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get product statistics for current user."""
+    try:
+        from models.product import Product
+        
+        # Get statistics
+        total_products = db.query(Product).filter(Product.seller_id == current_user.id).count()
+        active_products = db.query(Product).filter(
+            Product.seller_id == current_user.id,
+            Product.is_active == True
+        ).count()
+        inactive_products = total_products - active_products
+        
+        # Low stock (assuming threshold of 10)
+        low_stock_products = db.query(Product).filter(
+            Product.seller_id == current_user.id,
+            Product.stock_quantity <= 10,
+            Product.stock_quantity > 0,
+            Product.is_active == True
+        ).count()
+        
+        # Out of stock
+        out_of_stock_products = db.query(Product).filter(
+            Product.seller_id == current_user.id,
+            Product.stock_quantity <= 0,
+            Product.is_active == True
+        ).count()
+        
+        return success_response(
+            data={
+                "total_products": total_products,
+                "active_products": active_products,
+                "inactive_products": inactive_products,
+                "low_stock_products": low_stock_products,
+                "out_of_stock_products": out_of_stock_products
+            },
+            message="Product statistics retrieved successfully"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting product stats: {str(e)}")
+        return error_response(
+            message="Failed to retrieve product statistics",
+            error_code="PRODUCT_STATS_ERROR",
+            details={"error": str(e)}
+        )
+
+@router.get("/my-products")
+def get_my_products(
+    skip: int = 0,
+    limit: int = 100,
+    active_only: bool = True,
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get products for current user."""
+    try:
+        products = get_products_by_seller(
+            db=db, 
+            seller_id=current_user.id, 
+            skip=skip, 
+            limit=limit,
+            active_only=active_only
+        )
+        
+        if not products:
+            return empty_data_response(
+                data_type="products",
+                reason="No products found for this user",
+                suggestions=[
+                    "Create your first product",
+                    "Check your product filters",
+                    "Contact support if this seems incorrect"
+                ]
+            )
+        
+        product_data = [ProductResponse.from_orm(product) for product in products]
+        
+        return success_response(
+            data=product_data,
+            message=f"Retrieved {len(product_data)} products successfully"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting user products: {str(e)}")
+        return error_response(
+            message="Failed to retrieve products",
+            error_code="PRODUCTS_RETRIEVAL_ERROR",
+            details={"error": str(e)}
         )
