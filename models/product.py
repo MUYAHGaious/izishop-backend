@@ -20,5 +20,5 @@ class Product(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    seller = relationship("User", back_populates="products_as_seller")
-    order_items = relationship("OrderItem", back_populates="product") 
+    # seller = relationship("User", back_populates="products_as_seller")
+    # order_items = relationship("OrderItem", back_populates="product") 

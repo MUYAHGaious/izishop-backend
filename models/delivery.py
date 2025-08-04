@@ -15,5 +15,5 @@ class Delivery(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    order = relationship("Order")
-    delivery_agent = relationship("User", back_populates="deliveries_assigned") 
+    # order = relationship("Order")
+    # delivery_agent = relationship("User", back_populates="deliveries_assigned") 

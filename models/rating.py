@@ -22,10 +22,10 @@ class Rating(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    user = relationship("User", back_populates="ratings")
-    shop = relationship("Shop", back_populates="ratings")
-    helpfulness_votes = relationship("RatingHelpfulness", back_populates="rating", cascade="all, delete-orphan")
-    flags = relationship("RatingFlag", back_populates="rating", cascade="all, delete-orphan")
+    # user = relationship("User", back_populates="ratings")
+    # shop = relationship("Shop", back_populates="ratings")
+    # helpfulness_votes = relationship("RatingHelpfulness", back_populates="rating", cascade="all, delete-orphan")
+    # flags = relationship("RatingFlag", back_populates="rating", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Rating(id={self.id}, user_id={self.user_id}, shop_id={self.shop_id}, rating={self.rating})>"
@@ -74,8 +74,8 @@ class RatingHelpfulness(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
-    rating = relationship("Rating", back_populates="helpfulness_votes")
-    user = relationship("User")
+    # rating = relationship("Rating", back_populates="helpfulness_votes")
+    # user = relationship("User")
 
     def __repr__(self):
         return f"<RatingHelpfulness(rating_id={self.rating_id}, user_id={self.user_id}, is_helpful={self.is_helpful})>"
@@ -95,8 +95,8 @@ class RatingFlag(Base):
     resolved_at = Column(DateTime, nullable=True)
 
     # Relationships
-    rating = relationship("Rating", back_populates="flags")
-    user = relationship("User")
+    # rating = relationship("Rating", back_populates="flags")
+    # user = relationship("User")
 
     def __repr__(self):
         return f"<RatingFlag(rating_id={self.rating_id}, reason={self.reason})>"
@@ -117,7 +117,7 @@ class ShopStats(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    shop = relationship("Shop", back_populates="stats")
+    # shop = relationship("Shop", back_populates="stats")
 
     def __repr__(self):
         return f"<ShopStats(shop_id={self.shop_id}, average_rating={self.average_rating})>"

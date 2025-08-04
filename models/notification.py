@@ -65,7 +65,7 @@ class Notification(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    user = relationship("User", back_populates="notifications")
+    # user = relationship("User", back_populates="notifications")
 
 class NotificationPreference(Base):
     __tablename__ = "notification_preferences"
@@ -101,7 +101,7 @@ class NotificationPreference(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    user = relationship("User", back_populates="notification_preferences")
+    # user = relationship("User", back_populates="notification_preferences")
 
 class NotificationTemplate(Base):
     __tablename__ = "notification_templates"

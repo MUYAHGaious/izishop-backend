@@ -35,9 +35,9 @@ class Order(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    customer = relationship("User", back_populates="orders_as_customer")
-    shop = relationship("Shop", back_populates="orders")
-    items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    # customer = relationship("User", back_populates="orders_as_customer")
+    # shop = relationship("Shop", back_populates="orders")
+    # items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
 
 class OrderItem(Base):
     __tablename__ = "order_items"
@@ -53,5 +53,5 @@ class OrderItem(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    order = relationship("Order", back_populates="items")
-    product = relationship("Product", back_populates="order_items") 
+    # order = relationship("Order", back_populates="items")
+    # product = relationship("Product", back_populates="order_items") 
