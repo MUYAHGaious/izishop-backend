@@ -422,6 +422,74 @@ def check_phone_availability(phone: str, db: Session = Depends(get_db)):
         logger.error(f"Error checking phone availability: {str(e)}")
         return {"available": False, "message": "Unable to check phone availability"}
 
+# Refresh Token Schema
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+@router.post("/refresh", response_model=Token)
+def refresh_access_token(request: RefreshTokenRequest, db: Session = Depends(get_db)):
+    """Refresh access token using refresh token."""
+    try:
+        logger.info("Token refresh attempt")
+        
+        # For now, we'll implement a simple refresh mechanism
+        # In production, you'd want to validate the refresh token properly
+        refresh_token = request.refresh_token
+        
+        if not refresh_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Refresh token is required"
+            )
+        
+        # Verify refresh token
+        try:
+            token_data = verify_token(refresh_token)
+            if not token_data:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid refresh token"
+                )
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired refresh token"
+            )
+        
+        # Get user from database
+        user = get_user_by_email(db, email=token_data.email)
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found or inactive"
+            )
+        
+        # Create new access token
+        access_token_expires = timedelta(
+            minutes=getattr(settings, 'ACCESS_TOKEN_EXPIRE_MINUTES', 30)
+        )
+        new_access_token = create_access_token(
+            data={"sub": user.email, "user_id": str(user.id)},
+            expires_delta=access_token_expires
+        )
+        
+        logger.info(f"Token refreshed successfully for user: {user.email}")
+        
+        return Token(
+            access_token=new_access_token,
+            token_type="bearer",
+            user=UserResponse.from_orm(user)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during token refresh: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not refresh token"
+        )
+
 @router.get("/profile/days-active")
 async def get_user_days_active(
     current_user: UserResponse = Depends(get_current_user),

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import logging
@@ -60,7 +61,7 @@ class CreateOrderRequest(BaseModel):
     shipping_address: str
     payment_method: str = "card"
 
-@router.post("/create", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/create", response_model=OrderResponse, status_code=http_status.HTTP_201_CREATED)
 def create_order(
     order_request: CreateOrderRequest,
     current_user: UserResponse = Depends(get_current_user),
@@ -77,19 +78,19 @@ def create_order(
             product = db.query(Product).filter(Product.id == item.product_id).first()
             if not product:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
+                    status_code=http_status.HTTP_404_NOT_FOUND,
                     detail=f"Product {item.product_id} not found"
                 )
             
             if not product.is_active:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
                     detail=f"Product {product.name} is not available"
                 )
             
             if product.stock_quantity < item.quantity:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
                     detail=f"Insufficient stock for {product.name}. Available: {product.stock_quantity}"
                 )
             
@@ -97,7 +98,7 @@ def create_order(
             seller_shop = db.query(Shop).filter(Shop.owner_id == product.seller_id).first()
             if not seller_shop:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
                     detail=f"Shop not found for product {product.name}"
                 )
             
@@ -107,7 +108,7 @@ def create_order(
                 shop_id = seller_shop.id
             elif shop_id != seller_shop.id:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
                     detail="All items must be from the same shop in this version"
                 )
             
@@ -196,7 +197,7 @@ def create_order(
         db.rollback()
         logger.error(f"Error creating order: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create order"
         )
 
@@ -226,7 +227,7 @@ def get_shop_owner_orders(
                 query = query.filter(Order.status == order_status)
             except ValueError:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid order status: {status}"
                 )
         
@@ -283,7 +284,7 @@ def get_shop_owner_orders(
     except Exception as e:
         logger.error(f"Error getting shop owner orders: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail="Failed to retrieve orders"
         )
 
@@ -338,7 +339,7 @@ def get_order_stats(
     except Exception as e:
         logger.error(f"Error getting order stats: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve order statistics"
         )
 
@@ -355,7 +356,7 @@ def update_order_status(
         shop = db.query(Shop).filter(Shop.owner_id == current_user.id).first()
         if not shop:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
+                status_code=http_status.HTTP_403_FORBIDDEN,
                 detail="You don't have a shop"
             )
         
@@ -367,7 +368,7 @@ def update_order_status(
         
         if not order:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
+                status_code=http_status.HTTP_404_NOT_FOUND,
                 detail="Order not found"
             )
         
@@ -384,7 +385,7 @@ def update_order_status(
                 
             except ValueError:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid order status: {update_request.status}"
                 )
         
@@ -404,7 +405,7 @@ def update_order_status(
         db.rollback()
         logger.error(f"Error updating order status: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update order"
         )
 
@@ -420,7 +421,7 @@ def get_order_details(
         order = db.query(Order).filter(Order.id == order_id).first()
         if not order:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
+                status_code=http_status.HTTP_404_NOT_FOUND,
                 detail="Order not found"
             )
         
@@ -428,7 +429,7 @@ def get_order_details(
         shop = db.query(Shop).filter(Shop.id == order.shop_id).first()
         if order.customer_id != current_user.id and (not shop or shop.owner_id != current_user.id):
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
+                status_code=http_status.HTTP_403_FORBIDDEN,
                 detail="You don't have permission to view this order"
             )
         
@@ -469,6 +470,6 @@ def get_order_details(
     except Exception as e:
         logger.error(f"Error getting order details: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve order details"
         )

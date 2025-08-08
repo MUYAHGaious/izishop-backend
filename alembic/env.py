@@ -36,8 +36,8 @@ target_metadata = Base.metadata
 
 
 def get_url():
-    url = "postgresql://postgres:postgres@localhost:5433/izishop"
-    print("ALEMBIC DATABASE_URL (HARDCODED):", url)
+    url = settings.DATABASE_URL
+    print("ALEMBIC DATABASE_URL:", url)
     return url
 
 
