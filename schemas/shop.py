@@ -49,8 +49,8 @@ class ShopUpdate(BaseModel):
     address: Optional[str] = Field(None, max_length=200)
     phone: Optional[str] = Field(None, max_length=20)
     email: Optional[str] = Field(None, max_length=100)
-    profile_photo: Optional[str] = Field(None, max_length=500)
-    background_image: Optional[str] = Field(None, max_length=500)
+    profile_photo: Optional[str] = None  # No length limit for base64 images
+    background_image: Optional[str] = None  # No length limit for base64 images
     is_active: Optional[bool] = None
 
 # Shop Response Schema
