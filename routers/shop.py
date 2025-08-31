@@ -609,3 +609,41 @@ def check_business_license_availability(license_number: str, db: Session = Depen
     except Exception as e:
         logger.error(f"Error checking business license availability: {str(e)}")
         return {"available": False, "message": "Unable to check business license"}
+
+@router.get("/{shop_id}/followers/count")
+def get_shop_followers_count(
+    shop_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get the number of followers for a specific shop."""
+    try:
+        logger.info(f"Getting followers count for shop: {shop_id}")
+        
+        # Verify shop exists
+        shop = get_shop_by_id(db, shop_id=shop_id)
+        if not shop:
+            logger.warning(f"Shop not found: {shop_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Shop not found"
+            )
+        
+        # For now, return a placeholder count since we don't have followers table yet
+        # In the future, this would query a followers table
+        followers_count = 42  # Placeholder value
+        
+        logger.info(f"Returning followers count for shop {shop_id}: {followers_count}")
+        
+        return {
+            "shop_id": shop_id,
+            "followers_count": followers_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting followers count for shop {shop_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to get followers count"
+        )

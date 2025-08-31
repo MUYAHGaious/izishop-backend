@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, validator
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
 
@@ -82,3 +82,43 @@ class ProductListResponse(BaseModel):
     page: int
     per_page: int
     pages: int
+
+class ProductReviewBase(BaseModel):
+    rating: int = Field(..., ge=1, le=5, description="Rating from 1 to 5 stars")
+    title: Optional[str] = Field(None, max_length=200, description="Review title")
+    content: Optional[str] = Field(None, max_length=2000, description="Review content")
+
+class ProductReviewCreate(ProductReviewBase):
+    product_id: str = Field(..., description="ID of the product being reviewed")
+
+class ProductReviewUpdate(BaseModel):
+    rating: Optional[int] = Field(None, ge=1, le=5, description="Rating from 1 to 5 stars")
+    title: Optional[str] = Field(None, max_length=200, description="Review title")
+    content: Optional[str] = Field(None, max_length=2000, description="Review content")
+
+class ProductReviewResponse(ProductReviewBase):
+    id: str
+    product_id: str
+    user_id: str
+    user_name: Optional[str] = None
+    user_avatar: Optional[str] = None
+    is_verified_purchase: bool
+    is_active: bool
+    helpful_count: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class ProductReviewListResponse(BaseModel):
+    reviews: List[ProductReviewResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+class ProductReviewStats(BaseModel):
+    average_rating: float
+    total_reviews: int
+    rating_distribution: Dict[int, int]  # {1: count, 2: count, ...}

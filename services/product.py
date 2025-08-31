@@ -1,10 +1,11 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, desc, asc
-from models.product import Product
+from sqlalchemy import and_, or_, desc, asc, func
+from models.product import Product, ProductReview
 from models.user import User
 from schemas.product import ProductCreate, ProductUpdate
-from typing import List, Optional
+from typing import List, Optional, Dict
 import logging
+from core.exceptions import ResourceNotFoundError, BusinessLogicError
 
 logger = logging.getLogger(__name__)
 
@@ -179,3 +180,190 @@ def update_product_stock(db: Session, product_id: str, quantity_change: int, sel
         db.rollback()
         logger.error(f"Error updating product stock: {str(e)}")
         raise
+
+# Product Review Services
+def create_product_review(
+    db: Session, 
+    product_id: str, 
+    user_id: str, 
+    review_data: dict
+) -> ProductReview:
+    """Create a new product review"""
+    try:
+        # Check if product exists
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise ResourceNotFoundError(f"Product with id {product_id} not found")
+        
+        # Check if user already reviewed this product
+        existing_review = db.query(ProductReview).filter(
+            and_(
+                ProductReview.product_id == product_id,
+                ProductReview.user_id == user_id
+            )
+        ).first()
+        
+        if existing_review:
+            raise BusinessLogicError("You have already reviewed this product")
+        
+        # Create review
+        review = ProductReview(
+            product_id=product_id,
+            user_id=user_id,
+            rating=review_data["rating"],
+            title=review_data.get("title"),
+            content=review_data.get("content"),
+            is_verified_purchase=review_data.get("is_verified_purchase", False)
+        )
+        
+        db.add(review)
+        db.commit()
+        db.refresh(review)
+        
+        # Update product rating
+        update_product_rating(db, product_id)
+        
+        return review
+        
+    except Exception as e:
+        db.rollback()
+        raise e
+
+def get_product_reviews(
+    db: Session, 
+    product_id: str, 
+    skip: int = 0, 
+    limit: int = 10,
+    sort_by: str = "newest"
+) -> List[ProductReview]:
+    """Get reviews for a product with pagination and sorting"""
+    try:
+        query = db.query(ProductReview).filter(
+            and_(
+                ProductReview.product_id == product_id,
+                ProductReview.is_active == True
+            )
+        )
+        
+        # Apply sorting
+        if sort_by == "newest":
+            query = query.order_by(ProductReview.created_at.desc())
+        elif sort_by == "oldest":
+            query = query.order_by(ProductReview.created_at.asc())
+        elif sort_by == "highest":
+            query = query.order_by(ProductReview.rating.desc())
+        elif sort_by == "lowest":
+            query = query.order_by(ProductReview.rating.asc())
+        elif sort_by == "helpful":
+            query = query.order_by(ProductReview.helpful_count.desc())
+        
+        # Apply pagination
+        reviews = query.offset(skip).limit(limit).all()
+        
+        # Add user information
+        for review in reviews:
+            user = db.query(User).filter(User.id == review.user_id).first()
+            if user:
+                review.user_name = f"{user.first_name} {user.last_name}"
+                review.user_avatar = None  # TODO: Add user avatar field
+        
+        return reviews
+        
+    except Exception as e:
+        logging.error(f"Error getting product reviews: {str(e)}")
+        raise e
+
+def get_product_review_stats(db: Session, product_id: str) -> Dict:
+    """Get review statistics for a product"""
+    try:
+        # Get average rating and total reviews
+        result = db.query(
+            func.avg(ProductReview.rating).label('average'),
+            func.count(ProductReview.id).label('total')
+        ).filter(
+            and_(
+                ProductReview.product_id == product_id,
+                ProductReview.is_active == True
+            )
+        ).first()
+        
+        # Get rating distribution
+        distribution_result = db.query(
+            ProductReview.rating,
+            func.count(ProductReview.id).label('count')
+        ).filter(
+            and_(
+                ProductReview.product_id == product_id,
+                ProductReview.is_active == True
+            )
+        ).group_by(ProductReview.rating).all()
+        
+        distribution = {i: 0 for i in range(1, 6)}
+        for rating, count in distribution_result:
+            distribution[rating] = count
+        
+        return {
+            'average_rating': round(float(result.average), 1) if result.average else 0.0,
+            'total_reviews': result.total or 0,
+            'rating_distribution': distribution
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting product review stats: {str(e)}")
+        raise e
+
+def update_product_rating(db: Session, product_id: str):
+    """Update product's average rating based on reviews"""
+    try:
+        stats = get_product_review_stats(db, product_id)
+        product = db.query(Product).filter(Product.id == product_id).first()
+        
+        if product:
+            # Update product rating (you may need to add this field to Product model)
+            # product.rating = stats['average_rating']
+            # product.review_count = stats['total_reviews']
+            db.commit()
+            
+    except Exception as e:
+        logging.error(f"Error updating product rating: {str(e)}")
+        # Don't raise error as this is not critical
+
+def get_related_products(
+    db: Session, 
+    product_id: str, 
+    limit: int = 6
+) -> List[Product]:
+    """Get related products based on category and seller"""
+    try:
+        # Get current product
+        current_product = db.query(Product).filter(Product.id == product_id).first()
+        if not current_product:
+            return []
+        
+        # Get products from same category and seller (excluding current product)
+        related_products = db.query(Product).filter(
+            and_(
+                Product.id != product_id,
+                Product.is_active == True,
+                Product.seller_id == current_product.seller_id
+            )
+        ).limit(limit).all()
+        
+        # If not enough products from same seller, get from same category
+        if len(related_products) < limit:
+            remaining_limit = limit - len(related_products)
+            category_products = db.query(Product).filter(
+                and_(
+                    Product.id != product_id,
+                    Product.is_active == True,
+                    Product.id.notin_([p.id for p in related_products])
+                )
+            ).limit(remaining_limit).all()
+            
+            related_products.extend(category_products)
+        
+        return related_products
+        
+    except Exception as e:
+        logging.error(f"Error getting related products: {str(e)}")
+        return []

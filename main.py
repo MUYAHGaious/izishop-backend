@@ -4,8 +4,8 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 from database.connection import create_tables, get_db
-from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications
-# Temporarily comment out upload router if it's causing issues
+from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug
+# Upload router for image uploads - temporarily disabled
 # from routers import upload
 from routers.auth import get_current_user
 from schemas.user import UserResponse
@@ -13,12 +13,7 @@ import logging
 from pydantic import ValidationError
 
 # Import our new architecture components
-from core.middleware import (
-    RequestLoggingMiddleware, 
-    SecurityHeadersMiddleware, 
-    RateLimitMiddleware,
-    DatabaseTransactionMiddleware
-)
+from core.security_middleware import create_security_middleware_stack
 from core.exceptions import (
     BaseCustomException, 
     BusinessLogicError, 
@@ -29,6 +24,10 @@ from core.exceptions import (
     create_http_exception_from_custom
 )
 from core.response import error_response
+
+# Import file logging system
+from core.file_logger import file_logger
+from core.logging_middleware import LoggingMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -42,6 +41,12 @@ app = FastAPI(
     description="Backend API for Izishop e-commerce platform",
     version="1.0.0"
 )
+
+# Initialize file logging
+file_logger.log_startup()
+
+# Add logging middleware (MUST be first to capture all requests)
+app.add_middleware(LoggingMiddleware)
 
 # Global exception handler for custom exceptions
 @app.exception_handler(BaseCustomException)
@@ -117,29 +122,21 @@ async def general_exception_handler(request: Request, exc: Exception):
         )
     )
 
-# Add CORS middleware FIRST (must be first to handle preflight requests)
-# EMERGENCY: Fix CORS blocking all requests
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:4028",
-        "http://127.0.0.1:4028", 
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://localhost:4029",
-        "http://localhost:3001"
-    ],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+# Apply enterprise security middleware stack using FastAPI's add_middleware method
+from core.security_middleware import (
+    RateLimitMiddleware,
+    SecurityHeadersMiddleware,
+    InputValidationMiddleware,
+    RequestLoggingMiddleware,
+    CORSMiddleware
 )
 
-# Add custom middleware (order matters - first added is executed last)
-app.add_middleware(DatabaseTransactionMiddleware)
-app.add_middleware(RateLimitMiddleware, calls=100, period=60)  # 100 requests per minute
-app.add_middleware(SecurityHeadersMiddleware)
+# Add middleware in order (last added = first executed)
+app.add_middleware(CORSMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(InputValidationMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
 # Simple health check endpoint
 @app.get("/api/health")
@@ -322,7 +319,9 @@ app.include_router(notification.router, prefix="/api/notifications", tags=["Noti
 app.include_router(notifications.router, prefix="/api/ai-notifications", tags=["AI Notifications"])
 app.include_router(order.router, prefix="/api/orders", tags=["Orders"])
 app.include_router(shop_owner.router, prefix="/api/shop-owner", tags=["Shop Owner"])
-# Temporarily comment out upload router
+app.include_router(customer.router, prefix="/api/customer", tags=["Customer"])
+app.include_router(debug.router, tags=["Debug"])
+# Temporarily disable upload router due to unicode issues
 # app.include_router(upload.router, prefix="/api/uploads", tags=["File Uploads"])
 
 # Create database tables on startup

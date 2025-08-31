@@ -16,9 +16,22 @@ from services.product import (
     update_product,
     delete_product,
     get_seller_product_stats,
-    update_product_stock
+    update_product_stock,
+    create_product_review,
+    get_product_reviews,
+    get_product_review_stats,
+    get_related_products
 )
-from schemas.product import ProductCreate, ProductUpdate, ProductResponse, ProductListResponse
+from schemas.product import (
+    ProductCreate, 
+    ProductUpdate, 
+    ProductResponse, 
+    ProductListResponse,
+    ProductReviewCreate,
+    ProductReviewResponse,
+    ProductReviewListResponse,
+    ProductReviewStats
+)
 from schemas.user import UserResponse
 from routers.auth import get_current_user
 from models.user import UserRole
@@ -364,4 +377,99 @@ def get_my_products(
             message="Failed to retrieve products",
             error_code="PRODUCTS_RETRIEVAL_ERROR",
             details={"error": str(e)}
+        )
+
+@router.get("/{product_id}/reviews", response_model=List[ProductReviewResponse])
+def get_product_reviews_endpoint(
+    product_id: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=50),
+    sort_by: str = Query("newest", regex="^(newest|oldest|highest|lowest|helpful)$"),
+    db: Session = Depends(get_db)
+):
+    """Get reviews for a specific product"""
+    try:
+        reviews = get_product_reviews(
+            db=db, 
+            product_id=product_id, 
+            skip=skip, 
+            limit=limit,
+            sort_by=sort_by
+        )
+        return reviews
+    except Exception as e:
+        logger.error(f"Error getting product reviews: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve product reviews"
+        )
+
+@router.get("/{product_id}/reviews/stats", response_model=ProductReviewStats)
+def get_product_review_stats_endpoint(
+    product_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get review statistics for a specific product"""
+    try:
+        stats = get_product_review_stats(db=db, product_id=product_id)
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting product review stats: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve product review statistics"
+        )
+
+@router.post("/{product_id}/reviews", response_model=ProductReviewResponse, status_code=status.HTTP_201_CREATED)
+def create_product_review_endpoint(
+    product_id: str,
+    review_data: ProductReviewCreate,
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new review for a product"""
+    try:
+        review = create_product_review(
+            db=db,
+            product_id=product_id,
+            user_id=current_user.id,
+            review_data=review_data.dict()
+        )
+        return ProductReviewResponse.from_orm(review)
+    except ResourceNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except BusinessLogicError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error creating product review: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create product review"
+        )
+
+@router.get("/{product_id}/related", response_model=List[ProductResponse])
+def get_related_products_endpoint(
+    product_id: str,
+    limit: int = Query(6, ge=1, le=20),
+    db: Session = Depends(get_db)
+):
+    """Get related products for a specific product"""
+    try:
+        related_products = get_related_products(
+            db=db, 
+            product_id=product_id, 
+            limit=limit
+        )
+        return [ProductResponse.from_orm(product) for product in related_products]
+    except Exception as e:
+        logger.error(f"Error getting related products: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve related products"
         )

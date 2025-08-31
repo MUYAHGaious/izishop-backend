@@ -104,3 +104,43 @@ htmlcov/
 # Local development
 local_settings.py
 .local/
+
+# Debug and development files
+debug-logs/
+test_*.py
+*_test.py
+test_flow.py
+test_connectivity.py
+test_auth.py
+test_api_simple.py
+test_server.py
+test_simple_db.py
+test_registration.py
+test_enterprise_auth.py
+test_api_directly.py
+test_simple.py
+test_db.py
+package_check.py
+migrate_db.py
+create_tables.py
+create_admin.py
+setup_admin.py
+seed_*.py
+run_*.py
+
+# Claude AI files
+.claude/
+
+# Documentation and notes
+*.md
+!README.md
+
+# Database files (already covered but being explicit)
+*.db
+*.sqlite
+*.sqlite3
+izishop.db
+
+# Temporary and system files
+nul
+*.tmp

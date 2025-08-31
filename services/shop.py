@@ -17,23 +17,31 @@ logger = logging.getLogger(__name__)
 def create_shop(db: Session, shop_data: ShopCreate, owner_id: str) -> Shop:
     """Create a new shop with comprehensive validation."""
     try:
+        logger.info("--- Entering create_shop service ---")
         # Verify the owner exists and is a shop owner
+        logger.info(f"Step 1: Checking for owner with ID: {owner_id}")
         owner = db.query(User).filter(User.id == owner_id).first()
         if not owner:
             logger.warning(f"Attempt to create shop with non-existent owner: {owner_id}")
             raise ValueError("Owner not found")
+        logger.info("Step 1 PASSED: Owner found.")
         
+        logger.info(f"Step 2: Checking owner role. Role is: {owner.role}")
         if owner.role != UserRole.SHOP_OWNER:
             logger.warning(f"Attempt to create shop by non-shop-owner: {owner_id}")
             raise ValueError("Only shop owners can create shops")
-        
+        logger.info("Step 2 PASSED: Owner role is correct.")
+
         # Check if owner already has a shop
+        logger.info(f"Step 3: Checking if owner {owner_id} already has a shop.")
         existing_shop = db.query(Shop).filter(Shop.owner_id == owner_id).first()
         if existing_shop:
             logger.warning(f"Attempt to create multiple shops by owner: {owner_id}")
             raise ValueError("Shop owner already has a shop")
-        
+        logger.info("Step 3 PASSED: Owner does not have a shop yet.")
+
         # Check if shop name is already taken
+        logger.info(f"Step 4: Checking if shop name '{shop_data.name}' is taken.")
         name_exists = db.query(Shop).filter(Shop.name == shop_data.name).first()
         if name_exists:
             logger.warning(f"Attempt to create shop with existing name: {shop_data.name}")
@@ -46,8 +54,10 @@ def create_shop(db: Session, shop_data: ShopCreate, owner_id: str) -> Shop:
             
             suggestion_text = f" Try: {', '.join(suggested_names[:2])}" if suggested_names else ""
             raise ValueError(f"Shop name '{shop_data.name}' is already taken.{suggestion_text}")
-        
+        logger.info("Step 4 PASSED: Shop name is available.")
+
         # Create shop object
+        logger.info("Step 5: Creating Shop database object.")
         db_shop = Shop(
             id=str(uuid.uuid4()),
             owner_id=owner_id,
@@ -61,11 +71,17 @@ def create_shop(db: Session, shop_data: ShopCreate, owner_id: str) -> Shop:
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow()
         )
+        logger.info("Step 5 PASSED: Shop object created.")
         
         # Add to database
+        logger.info("Step 6: Adding shop to session and committing.")
         db.add(db_shop)
+        
+        # Commit to database
         db.commit()
+        
         db.refresh(db_shop)
+        logger.info("Step 6 PASSED: Commit and refresh successful.")
         
         logger.info(f"Shop created successfully: {shop_data.name} by owner {owner_id}")
         return db_shop

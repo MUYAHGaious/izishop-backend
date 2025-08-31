@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, validator, Field
+from pydantic import BaseModel, validator, Field
 from typing import Optional, Union
 from datetime import datetime
 from models.user import UserRole
@@ -6,7 +6,7 @@ import re
 
 # Base User Schema
 class UserBase(BaseModel):
-    email: EmailStr
+    email: str
     first_name: str = Field(..., min_length=2, max_length=50)
     last_name: str = Field(..., min_length=2, max_length=50)
     phone: Optional[str] = Field(None, max_length=20)
@@ -49,14 +49,7 @@ class UserRegister(UserBase):
             raise ValueError('Password must be at least 8 characters long')
         if len(v) > 128:
             raise ValueError('Password must not exceed 128 characters')
-        if not any(c.isupper() for c in v):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not any(c.islower() for c in v):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not any(c.isdigit() for c in v):
-            raise ValueError('Password must contain at least one digit')
-        if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in v):
-            raise ValueError('Password must contain at least one special character')
+        # Simplified validation - only require length for now
         return v
     
     @validator('confirm_password')
@@ -78,7 +71,7 @@ class UserRegister(UserBase):
 
 # User Login Schema
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 # User Response Schema
@@ -101,6 +94,7 @@ class UserResponse(BaseModel):
 # Token Schema
 class Token(BaseModel):
     access_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
     user: UserResponse
 

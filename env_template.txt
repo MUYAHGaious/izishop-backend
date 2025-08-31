@@ -1,0 +1,63 @@
+# Izishop Enterprise Environment Configuration
+# Copy this file to .env and fill in your actual values
+
+# Environment
+ENVIRONMENT=development
+DEBUG=false
+LOG_LEVEL=INFO
+
+# Database Configuration (PostgreSQL)
+DATABASE_URL=postgresql://username:password@localhost:5432/izishop
+DATABASE_POOL_SIZE=20
+DATABASE_MAX_OVERFLOW=10
+
+# Security Configuration
+SECRET_KEY=your-super-secure-secret-key-at-least-64-characters-long-change-this-in-production
+ACCESS_TOKEN_EXPIRE_MINUTES=15
+REFRESH_TOKEN_EXPIRE_DAYS=30
+ADMIN_ACCESS_CODE=your-super-secure-admin-access-code-at-least-32-characters-long
+
+# JWT Configuration
+JWT_ALGORITHM=HS256
+JWT_AUDIENCE=izishop-api
+JWT_ISSUER=izishop.com
+
+# Redis Configuration
+REDIS_URL=redis://localhost:6379/0
+REDIS_PASSWORD=
+
+# CORS and Security Headers
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,https://yourdomain.com
+TRUSTED_HOSTS=localhost,yourdomain.com
+
+# Rate Limiting
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_REQUESTS_PER_MINUTE=100
+RATE_LIMIT_BURST=20
+
+# External API Keys
+TRANZAK_API_KEY=your-tranzak-api-key
+TRANZAK_API_SECRET=your-tranzak-api-secret
+TRANZAK_BASE_URL=https://api.tranzak.com
+
+# Cloudinary Configuration
+CLOUDINARY_API_KEY=your-cloudinary-api-key
+CLOUDINARY_API_SECRET=your-cloudinary-api-secret
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+
+# Email Configuration
+SENDGRID_API_KEY=your-sendgrid-api-key
+FROM_EMAIL=noreply@izishop.com
+
+# SMS Configuration
+TWILIO_ACCOUNT_SID=your-twilio-account-sid
+TWILIO_AUTH_TOKEN=your-twilio-auth-token
+TWILIO_PHONE_NUMBER=your-twilio-phone-number
+
+# Application URLs
+FRONTEND_BASE_URL=http://localhost:3000
+BACKEND_BASE_URL=http://localhost:8000
+
+# Monitoring
+SENTRY_DSN=your-sentry-dsn
+ENABLE_METRICS=true 

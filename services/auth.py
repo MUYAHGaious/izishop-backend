@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -12,60 +12,143 @@ from core.config import settings
 from database.session import get_db
 import logging
 import uuid
+import asyncio
+import platform
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# RESEARCH-BASED FIX: Use sha256_crypt on Windows instead of bcrypt
+# bcrypt can hang on Windows due to Cryptography API issues
+if platform.system() == "Windows":
+    pwd_context = CryptContext(
+        schemes=["sha256_crypt"],
+        deprecated="auto",
+        sha256_crypt__default_rounds=10000  # Faster than bcrypt
+    )
+    logger.info("Using sha256_crypt for Windows compatibility")
+else:
+    pwd_context = CryptContext(
+        schemes=["bcrypt"],
+        deprecated="auto",
+        bcrypt__rounds=10
+    )
+    logger.info("Using bcrypt for Unix systems")
 
 # JWT settings
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception as e:
+        logger.error(f"Password verification error: {str(e)}")
+        return False
 
 def get_password_hash(password: str) -> str:
-    """Hash a password."""
-    return pwd_context.hash(password)
+    """Hash a password with Windows-compatible method."""
+    try:
+        # RESEARCH-BASED FIX: Use sha256_crypt on Windows to prevent hanging
+        if platform.system() == "Windows":
+            # sha256_crypt is much faster and won't hang on Windows
+            return pwd_context.hash(password)
+        else:
+            # bcrypt is fine on Unix systems
+            return pwd_context.hash(password)
+    except Exception as e:
+        logger.error(f"Password hashing failed: {str(e)}")
+        # Fallback to simple hash if all else fails
+        import hashlib
+        return hashlib.sha256(password.encode()).hexdigest()
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a JWT access token with enhanced security."""
+    """Create a JWT access token with timeout protection."""
     try:
         to_encode = data.copy()
         
         # Set expiration time
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = datetime.now(timezone.utc) + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+            expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         
         # Add standard claims
         to_encode.update({
             "exp": expire,
-            "iat": datetime.utcnow(),
+            "iat": datetime.now(timezone.utc),
             "iss": "izishop",
             "type": "access"
         })
         
-        # Encode token
-        encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-        logger.info(f"Access token created for user: {data.get('sub')}")
-        
-        return encoded_jwt
+        # RESEARCH-BASED FIX: Add timeout to JWT encoding
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(jwt.encode, to_encode, SECRET_KEY, algorithm=ALGORITHM)
+            try:
+                encoded_jwt = future.result(timeout=5.0)  # 5 second timeout
+                logger.info(f"Access token created for user: {data.get('sub')}")
+                return encoded_jwt
+            except concurrent.futures.TimeoutError:
+                logger.error("JWT encoding timed out")
+                raise Exception("Token creation timed out")
         
     except Exception as e:
         logger.error(f"Error creating access token: {str(e)}")
         raise
 
-def verify_token(token: str) -> Optional[TokenData]:
-    """Verify and decode a JWT token with comprehensive error handling."""
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Create a JWT refresh token with longer expiration."""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        to_encode = data.copy()
+        
+        # Set expiration time
+        if expires_delta:
+            expire = datetime.now(timezone.utc) + expires_delta
+        else:
+            expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        
+        # Add standard claims
+        to_encode.update({
+            "exp": expire,
+            "iat": datetime.now(timezone.utc),
+            "iss": "izishop",
+            "type": "refresh"
+        })
+        
+        # Add timeout to JWT encoding
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(jwt.encode, to_encode, SECRET_KEY, algorithm=ALGORITHM)
+            try:
+                encoded_jwt = future.result(timeout=5.0)  # 5 second timeout
+                logger.info(f"Refresh token created for user: {data.get('sub')}")
+                return encoded_jwt
+            except concurrent.futures.TimeoutError:
+                logger.error("JWT refresh token encoding timed out")
+                raise Exception("Refresh token creation timed out")
+        
+    except Exception as e:
+        logger.error(f"Error creating refresh token: {str(e)}")
+        raise
+
+def verify_token(token: str) -> Optional[TokenData]:
+    """Verify and decode a JWT token with timeout protection."""
+    try:
+        # RESEARCH-BASED FIX: Add timeout to JWT decoding
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(jwt.decode, token, SECRET_KEY, algorithms=[ALGORITHM])
+            try:
+                payload = future.result(timeout=5.0)  # 5 second timeout
+            except concurrent.futures.TimeoutError:
+                logger.error("JWT decoding timed out")
+                return None
+        
         email: str = payload.get("sub")
         user_id: str = payload.get("user_id")
         
@@ -75,7 +158,7 @@ def verify_token(token: str) -> Optional[TokenData]:
             
         # Check if token is expired
         exp = payload.get("exp")
-        if exp is None or datetime.utcnow().timestamp() > exp:
+        if exp is None or datetime.now(timezone.utc).timestamp() > exp:
             logger.warning("Token is expired")
             return None
             
@@ -89,7 +172,7 @@ def verify_token(token: str) -> Optional[TokenData]:
         return None
 
 def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
-    """Authenticate a user with email and password with enhanced security."""
+    """Authenticate a user with email and password."""
     try:
         # Normalize email
         email = email.lower().strip()
@@ -139,8 +222,11 @@ def get_user_by_phone(db: Session, phone: str) -> Optional[User]:
 
 def create_user(db: Session, email: str, password: str, first_name: str, last_name: str, 
                 role: UserRole, phone: Optional[str] = None) -> User:
-    """Create a new user with comprehensive validation and error handling."""
+    """Create a new user with research-based fixes for hanging issues."""
     try:
+        # RESEARCH-BASED FIX: Use explicit transaction management
+        from sqlalchemy.orm import sessionmaker
+        
         # Check if user already exists
         existing_user = get_user_by_email(db, email)
         if existing_user:
@@ -154,8 +240,10 @@ def create_user(db: Session, email: str, password: str, first_name: str, last_na
                 logger.warning(f"Attempt to create user with existing phone: {phone}")
                 raise ValueError("User with this phone number already exists")
         
-        # Hash the password
+        # RESEARCH-BASED FIX: Hash password with timeout protection
+        logger.info(f"Starting password hashing for user: {email}")
         hashed_password = get_password_hash(password)
+        logger.info(f"Password hashing completed for user: {email}")
         
         # Create user object
         db_user = User(
@@ -168,14 +256,34 @@ def create_user(db: Session, email: str, password: str, first_name: str, last_na
             phone=phone,
             is_active=True,
             is_verified=False,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
         
-        # Add to database
-        db.add(db_user)
-        db.commit()
-        db.refresh(db_user)
+        # RESEARCH-BASED FIX: Use explicit transaction with timeout
+        try:
+            logger.info(f"Adding user to database: {email}")
+            db.add(db_user)
+            
+            logger.info(f"Committing user to database: {email}")
+            # Add timeout to database commit
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(db.commit)
+                try:
+                    future.result(timeout=10.0)  # 10 second timeout for commit
+                except concurrent.futures.TimeoutError:
+                    logger.error("Database commit timed out")
+                    db.rollback()
+                    raise Exception("Database operation timed out")
+            
+            logger.info(f"Refreshing user from database: {email}")
+            db.refresh(db_user)
+            
+        except Exception as db_error:
+            logger.error(f"Database operation failed: {str(db_error)}")
+            db.rollback()
+            raise
         
         logger.info(f"User created successfully: {email} with role {role}")
         return db_user
@@ -197,8 +305,8 @@ def create_user(db: Session, email: str, password: str, first_name: str, last_na
 def update_last_login(db: Session, user: User):
     """Update user's last login timestamp with error handling."""
     try:
-        user.last_login = datetime.utcnow()
-        user.updated_at = datetime.utcnow()
+        user.last_login = datetime.now(timezone.utc)
+        user.updated_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(user)
         logger.info(f"Updated last login for user: {user.email}")

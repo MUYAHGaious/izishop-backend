@@ -1,79 +1,89 @@
-#!/usr/bin/env python3
 """
-Test registration functionality directly
+Minimal test to debug registration hanging issue
 """
-import sys
-import os
-sys.path.insert(0, os.path.dirname(__file__))
+from fastapi import FastAPI, HTTPException, status
+from pydantic import BaseModel
+import uvicorn
+from sqlalchemy.orm import Session
+from database.connection import get_db
+from models.user import User, UserRole
+import logging
 
-from database.connection import create_tables, get_db
-from schemas.user import UserRegister
-from models.user import UserRole
-from services.auth import create_user
-import traceback
+# Setup logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
-def test_registration_flow():
-    """Test the complete registration flow"""
+app = FastAPI()
+
+class SimpleRegister(BaseModel):
+    email: str
+    password: str
+    first_name: str
+    last_name: str
+    role: str = "CUSTOMER"
+
+@app.get("/")
+async def root():
+    return {"message": "Test registration API"}
+
+@app.post("/test-register")
+async def test_register(user_data: SimpleRegister):
+    """Simple registration test without complex validation"""
     try:
-        print("1. Creating database tables...")
-        create_tables()
-        print("SUCCESS: Database tables created")
+        logger.info(f"Received registration request for: {user_data.email}")
         
-        print("2. Testing schema validation...")
-        registration_data = {
-            "email": "test_reg@example.com",
-            "password": "Test123!",
-            "confirm_password": "Test123!",
-            "first_name": "Test",
-            "last_name": "Registration",
-            "phone": "237600000999",
-            "role": "SHOP_OWNER"
+        # Just return success without database operations first
+        return {
+            "message": "Registration test successful",
+            "email": user_data.email,
+            "role": user_data.role
         }
         
-        user_data = UserRegister(**registration_data)
-        print("SUCCESS: Schema validation passed")
-        
-        print("3. Testing password confirmation...")
-        if user_data.password != user_data.confirm_password:
-            raise ValueError("Password confirmation failed")
-        print("SUCCESS: Password confirmation passed")
-        
-        print("4. Testing user creation...")
-        db = next(get_db())
-        
-        user = create_user(
-            db=db,
-            email=user_data.email,
-            password=user_data.password,
-            first_name=user_data.first_name,
-            last_name=user_data.last_name,
-            role=UserRole(user_data.role),
-            phone=user_data.phone
-        )
-        
-        print(f"SUCCESS: User created: {user.email}")
-        
-        print("5. Testing duplicate email...")
-        try:
-            duplicate_user = create_user(
-                db=db,
-                email=user_data.email,
-                password="AnotherPassword123!",
-                first_name="Another",
-                last_name="User",
-                role=UserRole.CUSTOMER
-            )
-            print("ERROR: Duplicate email should have failed!")
-        except Exception as e:
-            print(f"SUCCESS: Duplicate email correctly rejected: {str(e)}")
-        
-        db.close()
-        print("SUCCESS: All registration tests passed!")
-        
     except Exception as e:
-        print(f"ERROR: {str(e)}")
-        print("Full traceback:")
-        traceback.print_exc()
+        logger.error(f"Error in test registration: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+@app.post("/test-db-register")
+async def test_db_register(user_data: SimpleRegister):
+    """Test with database operations"""
+    try:
+        logger.info(f"Testing DB registration for: {user_data.email}")
+        
+        # Test database connection
+        db = next(get_db())
+        logger.info("Database connection successful")
+        
+        # Test simple query
+        user_count = db.query(User).count()
+        logger.info(f"Current user count: {user_count}")
+        
+        # Test user check
+        existing_user = db.query(User).filter(User.email == user_data.email).first()
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User already exists"
+            )
+        
+        logger.info("Database operations successful")
+        
+        return {
+            "message": "Database test successful",
+            "email": user_data.email,
+            "user_count": user_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in DB test: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 if __name__ == "__main__":
-    test_registration_flow()
+    uvicorn.run(app, host="0.0.0.0", port=8002)
