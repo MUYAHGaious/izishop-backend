@@ -10,7 +10,11 @@ from models import *
 # Create database engine
 engine = create_engine(
     settings.DATABASE_URL,
-    poolclass=StaticPool,
+    pool_size=10,  # Increased pool size for better concurrency
+    max_overflow=20,  # Allow more connections when pool is full
+    pool_timeout=30,  # 30 second timeout for getting connection from pool
+    pool_recycle=3600,  # Recycle connections every hour
+    pool_pre_ping=True,  # Verify connections before use
     connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
 )
 

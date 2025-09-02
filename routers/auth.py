@@ -187,6 +187,34 @@ def get_current_user(
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserRegister, request: Request, db: Session = Depends(get_db)):
+    """Register a new user and return an access token with timeout protection."""
+    import asyncio
+    import concurrent.futures
+    
+    # Set a timeout for the entire registration process
+    timeout_seconds = 60  # 60 second timeout
+    
+    try:
+        # Run registration in a thread pool with timeout
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = loop.run_in_executor(executor, _register_user_sync, user_data, db)
+            result = await asyncio.wait_for(future, timeout=timeout_seconds)
+            return result
+    except asyncio.TimeoutError:
+        logger.error(f"Registration timeout for {user_data.email} after {timeout_seconds} seconds")
+        raise HTTPException(
+            status_code=status.HTTP_408_REQUEST_TIMEOUT,
+            detail="Registration request timed out. Please try again."
+        )
+    except Exception as e:
+        logger.error(f"Registration error for {user_data.email}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Registration failed: {str(e)}"
+        )
+
+def _register_user_sync(user_data: UserRegister, db: Session):
     """Register a new user and return an access token."""
     try:
         logger.info(f"Registration attempt for email: {user_data.email}")
