@@ -197,7 +197,10 @@ def register(user_data: UserRegister, request: Request, db: Session = Depends(ge
             raise ValueError("Passwords do not match")
 
         logger.info("About to create user")
-        # Create the user
+        logger.info(f"User data: email={user_data.email}, first_name={user_data.first_name}, last_name={user_data.last_name}, role={user_data.role}, phone={user_data.phone}")
+        
+        # Create the user with detailed logging
+        logger.info("=== CALLING CREATE_USER FUNCTION ===")
         user = create_user(
             db=db,
             email=user_data.email,
@@ -207,7 +210,8 @@ def register(user_data: UserRegister, request: Request, db: Session = Depends(ge
             role=user_data.role,
             phone=user_data.phone
         )
-        logger.info(f"User created: {user.id}")
+        logger.info(f"=== CREATE_USER SUCCESS: {user.id} ===")
+        logger.info(f"User created successfully: {user.id}")
 
         logger.info("About to create tokens")
         # Create access token and refresh token

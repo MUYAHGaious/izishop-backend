@@ -216,43 +216,66 @@ def create_user(db: Session, email: str, password: str, first_name: str, last_na
                 role: UserRole, phone: Optional[str] = None) -> User:
     """Create a new user with simplified logic for debugging."""
     try:
+        logger.info(f"=== CREATE_USER START: {email} ===")
+        
         # Check if user already exists
+        logger.info(f"Checking if user exists: {email}")
         existing_user = get_user_by_email(db, email)
         if existing_user:
             logger.warning(f"Attempt to create user with existing email: {email}")
             raise ValueError("User with this email already exists")
+        logger.info(f"Email check passed: {email}")
         
         # Check if phone number is already in use (if provided)
         if phone:
+            logger.info(f"Checking if phone exists: {phone}")
             existing_phone = get_user_by_phone(db, phone)
             if existing_phone:
                 logger.warning(f"Attempt to create user with existing phone: {phone}")
                 raise ValueError("User with this phone number already exists")
+            logger.info(f"Phone check passed: {phone}")
         
-        logger.info(f"ULTRA-FAST password hashing for user: {email}")
+        logger.info(f"Starting ULTRA-FAST password hashing for user: {email}")
         hashed_password = get_password_hash(password)
-        logger.info(f"Password hashing completed instantly for user: {email}")
+        logger.info(f"Password hashing completed INSTANTLY for user: {email}")
         
-        # Create user object
-        db_user = User(
-            id=str(uuid.uuid4()),
-            email=email.lower().strip(),
-            password_hash=hashed_password,
-            first_name=first_name,
-            last_name=last_name,
-            role=role,
-            phone=phone,
-            is_active=True,
-            is_verified=False,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
-        )
+        # Create user object with error handling
+        try:
+            logger.info(f"Creating User object for: {email}")
+            db_user = User(
+                id=str(uuid.uuid4()),
+                email=email.lower().strip(),
+                password_hash=hashed_password,
+                first_name=first_name,
+                last_name=last_name,
+                role=role,
+                phone=phone,
+                is_active=True,
+                is_verified=False,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc)
+            )
+            logger.info(f"User object created successfully for: {email}")
+        except Exception as e:
+            logger.error(f"FAILED to create User object for {email}: {str(e)}")
+            raise ValueError(f"Failed to create user object: {str(e)}")
         
-        logger.info(f"Adding user to database session: {email}")
-        db.add(db_user)
+        try:
+            logger.info(f"Adding user to database session: {email}")
+            db.add(db_user)
+            logger.info(f"User added to session successfully: {email}")
+        except Exception as e:
+            logger.error(f"FAILED to add user to session for {email}: {str(e)}")
+            raise ValueError(f"Failed to add user to database session: {str(e)}")
         
-        logger.info(f"Committing user to database: {email}")
-        db.commit()
+        try:
+            logger.info(f"Committing user to database: {email}")
+            db.commit()
+            logger.info(f"Database commit SUCCESS for: {email}")
+        except Exception as e:
+            logger.error(f"FAILED to commit user to database for {email}: {str(e)}")
+            db.rollback()
+            raise ValueError(f"Failed to save user to database: {str(e)}")
         
         logger.info(f"Refreshing user instance from database: {email}")
         db.refresh(db_user)
