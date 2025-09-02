@@ -32,9 +32,9 @@ else:
     pwd_context = CryptContext(
         schemes=["bcrypt"],
         deprecated="auto",
-        bcrypt__rounds=10
+        bcrypt__rounds=8  # Reduced for faster performance on limited resources
     )
-    logger.info("Using bcrypt for Unix systems")
+    logger.info("Using bcrypt for Unix systems with 8 rounds for production speed")
 
 # JWT settings
 SECRET_KEY = settings.SECRET_KEY
@@ -238,8 +238,30 @@ def create_user(db: Session, email: str, password: str, first_name: str, last_na
                 raise ValueError("User with this phone number already exists")
         
         logger.info(f"Starting password hashing for user: {email}")
-        hashed_password = get_password_hash(password)
-        logger.info(f"Password hashing completed for user: {email}")
+        # Add timeout protection for password hashing
+        import signal
+        import time
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Password hashing timed out")
+        
+        start_time = time.time()
+        try:
+            if platform.system() != "Windows":
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(10)  # 10 second timeout
+            hashed_password = get_password_hash(password)
+            if platform.system() != "Windows":
+                signal.alarm(0)  # Cancel timeout
+        except TimeoutError:
+            logger.error(f"Password hashing timed out for user: {email}")
+            raise ValueError("Registration failed - please try again")
+        finally:
+            if platform.system() != "Windows":
+                signal.alarm(0)  # Ensure alarm is cancelled
+                
+        elapsed = time.time() - start_time
+        logger.info(f"Password hashing completed for user: {email} in {elapsed:.2f}s")
         
         # Create user object
         db_user = User(
