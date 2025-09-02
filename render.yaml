@@ -13,7 +13,7 @@ services:
         sync: false
       - key: JWT_SECRET_KEY
         sync: false
-      - key: CORS_ORIGINS
+      - key: ALLOWED_ORIGINS
         value: "https://izishop-frontend.onrender.com"
       - key: ENVIRONMENT
         value: "production"
