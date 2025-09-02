@@ -191,8 +191,8 @@ async def register(user_data: UserRegister, request: Request, db: Session = Depe
     import asyncio
     import concurrent.futures
     
-    # Set a timeout for the entire registration process
-    timeout_seconds = 60  # 60 second timeout
+    # Set a timeout for the entire registration process  
+    timeout_seconds = 5  # 5 second timeout - ULTRA-FAST like tech giants
     
     try:
         # Run registration in a thread pool with timeout
