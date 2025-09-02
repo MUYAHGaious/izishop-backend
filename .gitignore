@@ -30,6 +30,11 @@ env.bak/
 venv.bak/
 .venv/
 
+# AI Tools
+.claude/
+.cursor/
+.anthropic/
+
 # Environment Variables
 .env
 .env.local
