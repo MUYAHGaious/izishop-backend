@@ -128,11 +128,11 @@ from core.security_middleware import (
     SecurityHeadersMiddleware,
     InputValidationMiddleware,
     RequestLoggingMiddleware,
-    CORSMiddleware
 )
+from core.cors_config import configure_cors
 
-# Add middleware in order (last added = first executed)
-app.add_middleware(CORSMiddleware)
+# Configure CORS with proper settings
+configure_cors(app)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(InputValidationMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
