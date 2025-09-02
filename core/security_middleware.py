@@ -36,16 +36,30 @@ class RateLimitMiddleware(SecurityMiddleware):
     def _setup_redis(self):
         """Setup Redis connection for rate limiting"""
         try:
+            # Check if Redis is enabled in settings
+            if not self.settings.RATE_LIMIT_ENABLED:
+                logger.info("Rate limiting disabled in configuration")
+                self.redis_client = None
+                return
+                
             self.redis_client = redis.from_url(
                 self.settings.REDIS_URL,
                 password=self.settings.REDIS_PASSWORD,
-                decode_responses=True
+                decode_responses=True,
+                socket_connect_timeout=2,  # 2 second timeout
+                socket_timeout=2,
+                retry_on_timeout=True,
+                health_check_interval=30
             )
             # Test connection
             self.redis_client.ping()
             logger.info("Redis connection established for rate limiting")
         except Exception as e:
             logger.warning(f"Redis connection failed, rate limiting disabled: {e}")
+            logger.info("Rate limiting will be disabled. To enable it:")
+            logger.info("1. Install Redis: https://redis.io/download")
+            logger.info("2. Start Redis service")
+            logger.info("3. Or set RATE_LIMIT_ENABLED=false in your environment")
             self.redis_client = None
     
     def _get_client_identifier(self, request: Request) -> str:
@@ -66,7 +80,9 @@ class RateLimitMiddleware(SecurityMiddleware):
     def _check_rate_limit(self, request: Request) -> bool:
         """Check if request is within rate limits"""
         if not self.redis_client:
-            return True  # Allow if Redis is unavailable
+            # If Redis is not available, use a simple in-memory fallback
+            # This is less robust but prevents complete failure
+            return self._check_rate_limit_fallback(request)
         
         try:
             identifier = self._get_client_identifier(request)
@@ -93,6 +109,43 @@ class RateLimitMiddleware(SecurityMiddleware):
             
         except Exception as e:
             logger.error(f"Rate limiting error: {e}")
+            # Fallback to in-memory rate limiting on Redis error
+            return self._check_rate_limit_fallback(request)
+    
+    def _check_rate_limit_fallback(self, request: Request) -> bool:
+        """Fallback rate limiting using in-memory storage when Redis is unavailable"""
+        try:
+            identifier = self._get_client_identifier(request)
+            current_time = int(time.time())
+            
+            # Simple in-memory rate limiting (less robust but functional)
+            # This is a basic fallback - in production, you'd want Redis
+            if not hasattr(self, '_fallback_requests'):
+                self._fallback_requests = {}
+            
+            # Clean old entries (older than 1 minute)
+            cutoff_time = current_time - 60
+            self._fallback_requests = {
+                k: v for k, v in self._fallback_requests.items() 
+                if v['timestamp'] > cutoff_time
+            }
+            
+            # Check current rate
+            if identifier in self._fallback_requests:
+                request_data = self._fallback_requests[identifier]
+                if request_data['count'] >= self.settings.RATE_LIMIT_REQUESTS_PER_MINUTE:
+                    return False
+                request_data['count'] += 1
+            else:
+                self._fallback_requests[identifier] = {
+                    'count': 1,
+                    'timestamp': current_time
+                }
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Fallback rate limiting error: {e}")
             return True  # Allow on error
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:

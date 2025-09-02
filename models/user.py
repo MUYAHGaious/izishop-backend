@@ -32,6 +32,11 @@ class User(Base):
 
     # Relationships
     shop = relationship("Shop", uselist=False, back_populates="owner")
+    subscription = relationship("Subscription", uselist=False, back_populates="user")
+    casual_listings = relationship("CasualListing", back_populates="seller")
+    delivery_agent = relationship("DeliveryAgent", uselist=False, back_populates="user")
+    transaction_fees = relationship("TransactionFee", back_populates="user")
+    metrics = relationship("UserMetrics", uselist=False, back_populates="user")
     # notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
     # notification_preferences = relationship("NotificationPreference", uselist=False, back_populates="user", cascade="all, delete-orphan")
     # orders_as_customer = relationship("Order", back_populates="customer", foreign_keys="Order.customer_id")

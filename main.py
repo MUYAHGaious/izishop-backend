@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 from database.connection import create_tables, get_db
-from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug
+from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug, tranzak_webhooks, casual_listings, transaction_fees, delivery_partner
 # Upload router for image uploads - temporarily disabled
 # from routers import upload
 from routers.auth import get_current_user
@@ -321,6 +321,10 @@ app.include_router(order.router, prefix="/api/orders", tags=["Orders"])
 app.include_router(shop_owner.router, prefix="/api/shop-owner", tags=["Shop Owner"])
 app.include_router(customer.router, prefix="/api/customer", tags=["Customer"])
 app.include_router(debug.router, tags=["Debug"])
+app.include_router(tranzak_webhooks.router, tags=["Tranzak Payments"])
+app.include_router(casual_listings.router, tags=["Casual Marketplace"])
+app.include_router(transaction_fees.router, tags=["Transaction Fees"])
+app.include_router(delivery_partner.router, tags=["Delivery Integration"])
 # Temporarily disable upload router due to unicode issues
 # app.include_router(upload.router, prefix="/api/uploads", tags=["File Uploads"])
 

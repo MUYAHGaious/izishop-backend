@@ -38,6 +38,7 @@ class Order(Base):
     # customer = relationship("User", back_populates="orders_as_customer")
     # shop = relationship("Shop", back_populates="orders")
     # items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    delivery_tracking = relationship("DeliveryTracking", back_populates="order", uselist=False)
 
 class OrderItem(Base):
     __tablename__ = "order_items"

@@ -4,6 +4,9 @@ from sqlalchemy.pool import StaticPool
 from database.base import Base
 from core.config import settings
 
+# Import all models so they are registered with SQLAlchemy
+from models import *
+
 # Create database engine
 engine = create_engine(
     settings.DATABASE_URL,

@@ -131,9 +131,9 @@ run_*.py
 # Claude AI files
 .claude/
 
-# Documentation and notes
-*.md
+# Documentation and notes (allow deployment docs)
 !README.md
+!DEPLOYMENT.md
 
 # Database files (already covered but being explicit)
 *.db

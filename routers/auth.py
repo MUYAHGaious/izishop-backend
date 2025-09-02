@@ -4,7 +4,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from sqlalchemy.orm import Session
 
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 
 from typing import Optional, Dict, Any
 
@@ -36,9 +36,8 @@ from services.auth import (
 
 from schemas.user import UserLogin, UserRegister, Token, UserResponse
 
-from core.config import settings
 
-from models.user import UserRole
+from core.config import settings
 
 from pydantic import BaseModel
 
@@ -192,6 +191,12 @@ async def register(user_data: UserRegister, request: Request, db: Session = Depe
     try:
         logger.info(f"Registration attempt for email: {user_data.email}")
 
+        # Explicitly check if passwords match
+        if user_data.password != user_data.confirm_password:
+            logger.error("Password mismatch")
+            raise ValueError("Passwords do not match")
+
+        logger.info("About to create user")
         # Create the user
         user = create_user(
             db=db,
@@ -202,7 +207,9 @@ async def register(user_data: UserRegister, request: Request, db: Session = Depe
             role=user_data.role,
             phone=user_data.phone
         )
+        logger.info(f"User created: {user.id}")
 
+        logger.info("About to create tokens")
         # Create access token and refresh token
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
@@ -213,15 +220,29 @@ async def register(user_data: UserRegister, request: Request, db: Session = Depe
         refresh_token = create_refresh_token(
             data={"sub": user.email, "user_id": str(user.id)}
         )
+        logger.info("Tokens created")
 
-        logger.info(f"User registered successfully: {user.email}")
+        logger.info("About to create UserResponse")
+        # Create UserResponse - try both methods for compatibility
+        try:
+            user_response = UserResponse.model_validate(user)
+        except Exception as model_error:
+            logger.error(f"model_validate failed: {model_error}, trying from_orm")
+            user_response = UserResponse.from_orm(user)
+        logger.info("UserResponse created")
 
-        return Token(
+        logger.info("About to create Token response")
+        token_result = Token(
             access_token=access_token,
             refresh_token=refresh_token,
             token_type="bearer",
-            user=UserResponse.from_orm(user)
+            user=user_response
         )
+        logger.info("Token response created")
+
+        logger.info(f"User registered successfully: {user.email}")
+        return token_result
+        
     except ValueError as e:
         logger.warning(f"Registration failed for {user_data.email}: {str(e)}")
         raise HTTPException(
@@ -229,10 +250,12 @@ async def register(user_data: UserRegister, request: Request, db: Session = Depe
             detail=str(e),
         )
     except Exception as e:
-        logger.error(f"Unexpected error during registration: {str(e)}")
+        logger.error(f"CRITICAL ERROR during registration for {user_data.email}: {str(e)}", exc_info=True)
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred during registration.",
+            detail=f"Registration error: {str(e)}",
         )
 
 
@@ -930,4 +953,97 @@ async def get_user_days_active(
 
         logger.error(f"Error getting user days active: {str(e)}")
 
-        return {"days_active": 1}  # Default fallback 
+        return {"days_active": 1}  # Default fallback
+
+
+@router.patch("/upgrade-role")
+async def upgrade_user_role(
+    role_data: Dict[str, str],
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Upgrade user role (CUSTOMER -> SHOP_OWNER or DELIVERY_AGENT)"""
+    try:
+        from models.user import UserRole
+        from models.shop import Shop
+        
+        new_role = role_data.get("role")
+        if not new_role:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Role is required"
+            )
+        
+        # Validate role
+        valid_roles = ["SHOP_OWNER", "DELIVERY_AGENT", "CASUAL_SELLER"]
+        if new_role not in valid_roles:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid role. Must be one of: {valid_roles}"
+            )
+        
+        # Check if user is already this role
+        if current_user.role == new_role:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"User is already a {new_role}"
+            )
+        
+        # Update user role
+        logger.info(f"Upgrading user {current_user.email} from {current_user.role} to {new_role}")
+        
+        from models.user import User
+        db.query(User).filter(User.id == current_user.id).update({
+            "role": new_role,
+            "updated_at": datetime.now(timezone.utc)
+        })
+        
+        # If upgrading to SHOP_OWNER, create a shop
+        if new_role == "SHOP_OWNER":
+            try:
+                # Check if user already has a shop
+                existing_shop = db.query(Shop).filter(Shop.owner_id == current_user.id).first()
+                if not existing_shop:
+                    logger.info(f"Creating shop for upgraded SHOP_OWNER: {current_user.email}")
+                    
+                    # Generate a default shop name based on user's name
+                    shop_name = f"{current_user.first_name} {current_user.last_name}'s Shop".strip()
+                    if not shop_name or shop_name == "'s Shop":
+                        shop_name = f"Shop by {current_user.email.split('@')[0]}"
+                    
+                    new_shop = Shop(
+                        owner_id=current_user.id,
+                        name=shop_name,
+                        description=f"Welcome to {shop_name}! We're excited to serve you.",
+                        address="",  # User can update later
+                        phone=current_user.phone or "",
+                        email=current_user.email,
+                        is_active=True,
+                        is_verified=False
+                    )
+                    
+                    db.add(new_shop)
+                    logger.info(f"Shop created successfully: {shop_name}")
+            except Exception as shop_error:
+                logger.error(f"Failed to create shop during role upgrade: {str(shop_error)}")
+                # Don't fail role upgrade if shop creation fails
+                pass
+        
+        db.commit()
+        logger.info(f"User role upgraded successfully: {current_user.email} -> {new_role}")
+        
+        return {
+            "message": f"Role upgraded to {new_role} successfully",
+            "new_role": new_role,
+            "requires_refresh": True  # Frontend should refresh user data
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Role upgrade failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upgrade role"
+        ) 

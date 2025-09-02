@@ -222,11 +222,8 @@ def get_user_by_phone(db: Session, phone: str) -> Optional[User]:
 
 def create_user(db: Session, email: str, password: str, first_name: str, last_name: str, 
                 role: UserRole, phone: Optional[str] = None) -> User:
-    """Create a new user with research-based fixes for hanging issues."""
+    """Create a new user with simplified logic for debugging."""
     try:
-        # RESEARCH-BASED FIX: Use explicit transaction management
-        from sqlalchemy.orm import sessionmaker
-        
         # Check if user already exists
         existing_user = get_user_by_email(db, email)
         if existing_user:
@@ -235,12 +232,11 @@ def create_user(db: Session, email: str, password: str, first_name: str, last_na
         
         # Check if phone number is already in use (if provided)
         if phone:
-            existing_phone = db.query(User).filter(User.phone == phone).first()
+            existing_phone = get_user_by_phone(db, phone)
             if existing_phone:
                 logger.warning(f"Attempt to create user with existing phone: {phone}")
                 raise ValueError("User with this phone number already exists")
         
-        # RESEARCH-BASED FIX: Hash password with timeout protection
         logger.info(f"Starting password hashing for user: {email}")
         hashed_password = get_password_hash(password)
         logger.info(f"Password hashing completed for user: {email}")
@@ -260,30 +256,14 @@ def create_user(db: Session, email: str, password: str, first_name: str, last_na
             updated_at=datetime.now(timezone.utc)
         )
         
-        # RESEARCH-BASED FIX: Use explicit transaction with timeout
-        try:
-            logger.info(f"Adding user to database: {email}")
-            db.add(db_user)
-            
-            logger.info(f"Committing user to database: {email}")
-            # Add timeout to database commit
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(db.commit)
-                try:
-                    future.result(timeout=10.0)  # 10 second timeout for commit
-                except concurrent.futures.TimeoutError:
-                    logger.error("Database commit timed out")
-                    db.rollback()
-                    raise Exception("Database operation timed out")
-            
-            logger.info(f"Refreshing user from database: {email}")
-            db.refresh(db_user)
-            
-        except Exception as db_error:
-            logger.error(f"Database operation failed: {str(db_error)}")
-            db.rollback()
-            raise
+        logger.info(f"Adding user to database session: {email}")
+        db.add(db_user)
+        
+        logger.info(f"Committing user to database: {email}")
+        db.commit()
+        
+        logger.info(f"Refreshing user instance from database: {email}")
+        db.refresh(db_user)
         
         logger.info(f"User created successfully: {email} with role {role}")
         return db_user
@@ -291,15 +271,17 @@ def create_user(db: Session, email: str, password: str, first_name: str, last_na
     except IntegrityError as e:
         db.rollback()
         logger.error(f"Database integrity error creating user {email}: {str(e)}")
-        if "email" in str(e).lower():
-            raise ValueError("User with this email already exists")
-        elif "phone" in str(e).lower():
-            raise ValueError("User with this phone number already exists")
-        else:
-            raise ValueError("Database constraint violation")
+        # Check for unique constraint violation and raise a clear ValueError
+        if "unique constraint" in str(e).lower() or "duplicate key" in str(e).lower():
+            if "email" in str(e).lower():
+                raise ValueError("User with this email already exists")
+            elif "phone" in str(e).lower():
+                raise ValueError("User with this phone number already exists")
+        raise ValueError("A database error occurred. Please try again.")
+
     except Exception as e:
         db.rollback()
-        logger.error(f"Unexpected error creating user {email}: {str(e)}")
+        logger.error(f"An unexpected error occurred creating user {email}: {str(e)}", exc_info=True)
         raise
 
 def update_last_login(db: Session, user: User):

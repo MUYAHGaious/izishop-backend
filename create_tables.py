@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
+"""Simple script to create database tables."""
+
 import sys
-import os
+sys.path.append('.')
 
-# Add the current directory to Python path
-sys.path.insert(0, os.path.dirname(__file__))
-
+from database.connection import engine, create_tables
 from database.base import Base
-from database.session import engine
-from models import user, wallet, shop, category, product, order, payment, delivery, rating
 
-def create_all_tables():
-    """Create all database tables"""
+# Import all models so they are registered with SQLAlchemy
+from models import *
+
+def main():
+    """Create all database tables."""
+    print("Creating database tables...")
     try:
-        print("Creating database tables...")
-        Base.metadata.create_all(bind=engine)
-        print("✅ All tables created successfully!")
-        return True
+        create_tables()
+        print("All tables created successfully!")
     except Exception as e:
-        print(f"❌ Failed to create tables: {e}")
+        print(f"Error creating tables: {str(e)}")
         return False
+    return True
 
 if __name__ == "__main__":
-    success = create_all_tables()
-    sys.exit(0 if success else 1)
+    success = main()
+    if not success:
+        sys.exit(1)
