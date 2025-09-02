@@ -21,7 +21,7 @@ email-validator==2.1.0
 python-decouple==3.8
 
 # Redis & Caching
-redis==5.0.1
+redis==4.6.0
 hiredis==2.3.2
 
 # Rate Limiting & Security
@@ -39,13 +39,11 @@ aiohttp==3.9.1
 
 # Background Tasks & Queues
 celery==5.3.4
-redis==5.0.1
 
 # Testing
 pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-cov==4.1.0
-httpx==0.25.2
 
 # Development Tools
 black==23.11.0
@@ -55,4 +53,4 @@ mypy==1.7.1
 
 # Production & Performance
 gunicorn==21.2.0
-uvloop==0.19.0 
+# uvloop==0.19.0  # Not supported in Linux containers, removed for production 
