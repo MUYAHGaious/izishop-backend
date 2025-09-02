@@ -21,15 +21,16 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         # Get client IP
         client_ip = request.client.host if request.client else "unknown"
         
-        # Get request body if it exists
+        # CRITICAL FIX: Don't consume request body in middleware
+        # This was causing 30-second timeouts in registration by consuming the body stream
         body = None
         if request.method in ["POST", "PUT", "PATCH"]:
-            try:
-                body_bytes = await request.body()
-                if body_bytes:
-                    body = body_bytes.decode('utf-8')
-            except Exception:
-                body = "[Could not read body]"
+            # Log that body exists without reading it
+            content_length = request.headers.get("content-length")
+            if content_length and int(content_length) > 0:
+                body = f"[Request body: {content_length} bytes]"
+            else:
+                body = "[No request body]"
         
         # Process the request
         try:
