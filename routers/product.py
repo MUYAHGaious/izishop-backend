@@ -12,6 +12,7 @@ from services.product import (
     get_product_by_id,
     get_products_by_seller,
     get_all_products,
+    get_products_for_catalog,
     search_products,
     update_product,
     delete_product,
@@ -123,22 +124,25 @@ def get_my_product_stats(
             detail="Failed to retrieve product statistics"
         )
 
-@router.get("/", response_model=List[ProductResponse])
+@router.get("/")
 def get_products(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(20, ge=1, le=100),  # Reduced max limit to save memory
     active_only: bool = Query(True),
     search: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    """Get all products (public endpoint for product catalog)"""
+    """Get all products (memory-optimized public endpoint for product catalog)"""
     try:
         if search:
-            products = search_products(db=db, search_term=search, skip=skip, limit=limit)
+            # For search, still use the old method but with smaller limit
+            products = search_products(db=db, search_term=search, skip=skip, limit=min(limit, 20), category=category)
+            return [ProductResponse.from_orm(product) for product in products]
         else:
-            products = get_all_products(db=db, skip=skip, limit=limit, active_only=active_only)
-        
-        return [ProductResponse.from_orm(product) for product in products]
+            # Use memory-efficient catalog endpoint
+            result = get_products_for_catalog(db=db, skip=skip, limit=limit, active_only=active_only, category=category)
+            return result['products']  # Return the lite products directly
         
     except Exception as e:
         logger.error(f"Error getting products: {str(e)}")

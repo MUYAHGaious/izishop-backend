@@ -54,16 +54,111 @@ def get_products_by_seller(db: Session, seller_id: str, skip: int = 0, limit: in
     
     return query.offset(skip).limit(limit).all()
 
-def get_all_products(db: Session, skip: int = 0, limit: int = 100, active_only: bool = True) -> List[Product]:
-    """Get all products (for product catalog)"""
+def get_all_products(db: Session, skip: int = 0, limit: int = 100, active_only: bool = True, category: Optional[str] = None) -> List[Product]:
+    """Get all products (for product catalog) - Memory optimized version"""
     query = db.query(Product)
     
     if active_only:
         query = query.filter(Product.is_active == True)
     
+    if category and category != 'all':
+        query = query.filter(Product.category == category)
+    
     return query.order_by(desc(Product.created_at)).offset(skip).limit(limit).all()
 
-def search_products(db: Session, search_term: str, skip: int = 0, limit: int = 100) -> List[Product]:
+def get_products_for_catalog(db: Session, skip: int = 0, limit: int = 100, active_only: bool = True, category: Optional[str] = None) -> dict:
+    """
+    Memory-efficient product retrieval for catalog display
+    Returns products with minimal data to prevent browser memory issues
+    """
+    try:
+        # Get products without loading large image data
+        products = get_all_products(db, skip, limit, active_only, category)
+        
+        # Transform to lightweight format
+        lite_products = []
+        for product in products:
+            # Extract only the first image URL to save memory
+            image_url = None
+            image_count = 0
+            has_video = False
+            
+            if product.image_urls:
+                try:
+                    import json
+                    if isinstance(product.image_urls, str):
+                        urls = json.loads(product.image_urls)
+                    else:
+                        urls = product.image_urls
+                    
+                    if urls and len(urls) > 0:
+                        # Use placeholder for base64 images to save memory
+                        first_url = urls[0]
+                        if first_url.startswith('data:'):
+                            image_url = '/api/placeholder/300/300'  # Use placeholder for base64
+                        else:
+                            image_url = first_url
+                        image_count = len(urls)
+                except:
+                    image_url = '/api/placeholder/300/300'
+                    image_count = 0
+            
+            if product.video_urls:
+                try:
+                    if isinstance(product.video_urls, str):
+                        video_urls = json.loads(product.video_urls)
+                    else:
+                        video_urls = product.video_urls
+                    has_video = bool(video_urls and len(video_urls) > 0)
+                except:
+                    has_video = False
+            
+            lite_product = {
+                'id': product.id,
+                'seller_id': product.seller_id,
+                'name': product.name,
+                'description': product.description,
+                'price': product.price,
+                'stock_quantity': product.stock_quantity,
+                'category': product.category,
+                'is_active': product.is_active,
+                'image_url': image_url,
+                'image_count': image_count,
+                'has_video': has_video,
+                'created_at': product.created_at,
+                'updated_at': product.updated_at
+            }
+            lite_products.append(lite_product)
+        
+        # Get total count for pagination
+        count_query = db.query(Product)
+        if active_only:
+            count_query = count_query.filter(Product.is_active == True)
+        if category and category != 'all':
+            count_query = count_query.filter(Product.category == category)
+        
+        total_count = count_query.count()
+        has_more = (skip + len(lite_products)) < total_count
+        
+        return {
+            'products': lite_products,
+            'total_count': total_count,
+            'page': (skip // limit) + 1,
+            'per_page': limit,
+            'has_more': has_more
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting products for catalog: {str(e)}")
+        return {
+            'products': [],
+            'total_count': 0,
+            'page': 1,
+            'per_page': limit,
+            'has_more': False
+        }
+
+def search_products(db: Session, search_term: str, skip: int = 0, limit: int = 100, category: Optional[str] = None) -> List[Product]:
     """Search products by name or description"""
     query = db.query(Product).filter(
         and_(
@@ -74,6 +169,9 @@ def search_products(db: Session, search_term: str, skip: int = 0, limit: int = 1
             )
         )
     )
+    
+    if category:
+        query = query.filter(Product.category == category)
     
     return query.order_by(desc(Product.created_at)).offset(skip).limit(limit).all()
 

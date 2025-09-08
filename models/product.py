@@ -13,6 +13,7 @@ class Product(Base):
     description = Column(Text, nullable=True)
     price = Column(Numeric(10, 2), nullable=False)
     stock_quantity = Column(Integer, default=0)
+    category = Column(String(100), nullable=True, index=True)  # Product category
     is_active = Column(Boolean, default=True)
     image_urls = Column(JSON, nullable=True)  # Store array of image URLs
     video_urls = Column(JSON, nullable=True)  # Store array of video URLs

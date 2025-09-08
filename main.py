@@ -167,6 +167,57 @@ async def test_cors():
         "low_stock_products": 2
     }
 
+# Categories endpoint
+@app.get("/api/categories")
+async def get_categories(db: Session = Depends(get_db)):
+    """Get all available product categories with counts"""
+    try:
+        from models.product import Product
+        from sqlalchemy import func
+        
+        # Get unique categories with product counts
+        categories = db.query(
+            Product.category,
+            func.count(Product.id).label('count')
+        ).filter(
+            Product.is_active == True,
+            Product.category.isnot(None)
+        ).group_by(Product.category).all()
+        
+        # Format response
+        category_list = [
+            {
+                "id": cat[0].lower().replace(' ', '-'),
+                "name": cat[0],
+                "product_count": cat[1]
+            }
+            for cat in categories
+        ]
+        
+        # Add "All Categories" option
+        total_products = db.query(Product).filter(Product.is_active == True).count()
+        category_list.insert(0, {
+            "id": "all",
+            "name": "All Categories", 
+            "product_count": total_products
+        })
+        
+        return category_list
+        
+    except Exception as e:
+        logger.error(f"Error getting categories: {str(e)}")
+        # Return default categories if database error
+        return [
+            {"id": "all", "name": "All Categories", "product_count": 0},
+            {"id": "electronics", "name": "Electronics", "product_count": 0},
+            {"id": "fashion", "name": "Fashion", "product_count": 0},
+            {"id": "sports", "name": "Sports", "product_count": 0},
+            {"id": "home", "name": "Home & Living", "product_count": 0},
+            {"id": "beauty", "name": "Health & Beauty", "product_count": 0},
+            {"id": "food", "name": "Food & Agriculture", "product_count": 0},
+            {"id": "automotive", "name": "Automotive", "product_count": 0}
+        ]
+
 # Missing shop-owner dashboard endpoints
 @app.get("/api/shop-owner/dashboard/today-stats")
 async def get_today_stats(

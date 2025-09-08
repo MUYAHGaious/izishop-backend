@@ -8,6 +8,7 @@ class ProductBase(BaseModel):
     description: Optional[str] = Field(None, max_length=2000, description="Product description")
     price: Decimal = Field(..., gt=0, description="Product price must be greater than 0")
     stock_quantity: int = Field(default=0, ge=0, description="Stock quantity must be non-negative")
+    category: Optional[str] = Field(None, max_length=100, description="Product category")
     is_active: bool = Field(default=True, description="Whether the product is active")
     image_urls: Optional[List[str]] = Field(default=[], description="List of product image URLs")
     video_urls: Optional[List[str]] = Field(default=[], description="List of product video URLs")
@@ -38,6 +39,7 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=2000)
     price: Optional[Decimal] = Field(None, gt=0)
     stock_quantity: Optional[int] = Field(None, ge=0)
+    category: Optional[str] = Field(None, max_length=100)
     is_active: Optional[bool] = None
     image_urls: Optional[List[str]] = Field(None, description="List of product image URLs")
     video_urls: Optional[List[str]] = Field(None, description="List of product video URLs")
@@ -61,6 +63,7 @@ class ProductResponse(BaseModel):
     description: Optional[str]
     price: Decimal
     stock_quantity: int
+    category: Optional[str]
     is_active: bool
     image_urls: Optional[List[str]] = []
     video_urls: Optional[List[str]] = []
