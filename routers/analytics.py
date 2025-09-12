@@ -176,7 +176,7 @@ async def get_recent_activity(
             })
         
         # Recent orders (if user has a shop)
-        if user_shop:
+            if user_shop:
             recent_orders = db.query(Order).filter(
                 Order.shop_id == user_shop.id
             ).order_by(desc(Order.created_at)).limit(5).all()

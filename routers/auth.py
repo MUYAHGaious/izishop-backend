@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 
 from database.connection import get_db
-from models.user import User
+from models.user import User, UserRole
 
 from services.auth import (
 
@@ -164,7 +164,7 @@ def get_current_user(
         
         
 
-        return UserResponse.from_orm(user)
+        return UserResponse.model_validate(user)
         
         
 
@@ -237,7 +237,7 @@ def register(user_data: UserRegister, request: Request, db: Session = Depends(ge
             user_response = UserResponse.model_validate(user)
         except Exception as model_error:
             logger.error(f"model_validate failed: {model_error}, trying from_orm")
-            user_response = UserResponse.from_orm(user)
+            user_response = UserResponse.model_validate(user)
         logger.info("UserResponse created")
 
         logger.info("About to create Token response")
@@ -371,7 +371,7 @@ async def login(user_credentials: UserLogin, request: Request, db: Session = Dep
 
             token_type="bearer",
 
-            user=UserResponse.from_orm(user)
+            user=UserResponse.model_validate(user)
 
         )
         
@@ -549,7 +549,7 @@ async def admin_login(admin_credentials: AdminLogin, request: Request, db: Sessi
 
             token_type="bearer",
 
-            user=UserResponse.from_orm(user)
+            user=UserResponse.model_validate(user)
 
         )
         
@@ -656,6 +656,49 @@ def get_current_user_info(
             )
             
             db.add(subscription)
+            
+            # Create subscription notification
+            try:
+                from models.notification import Notification, NotificationType, NotificationPriority
+                
+                subscription_notification = Notification(
+                    user_id=user_with_subscription.id,
+                    type=NotificationType.SYSTEM,
+                    title="🎉 Shop Owner Subscription Activated!",
+                    message=f"""Congratulations, {user_with_subscription.first_name}! Your Shop Owner subscription is now active.
+
+✅ SUBSCRIPTION DETAILS:
+• Plan: Shop Owner ($29.99/month)
+• Status: Active
+• Trial Period: 7 days free
+• Next Billing: {subscription.current_period_end.strftime('%B %d, %Y')}
+
+🏬 WHAT'S INCLUDED:
+• Unlimited product listings
+• Advanced analytics dashboard
+• Customer management tools
+• Marketing and promotion features
+• Priority customer support
+
+💡 TIP: Use your 7-day free trial to explore all features before your first billing cycle!
+
+Need help? Contact our support team anytime!
+
+IziShopin Team 🚀""",
+                    related_id=str(subscription.id),
+                    related_type="subscription_created",
+                    priority=NotificationPriority.HIGH,
+                    action_url="/shop-owner-dashboard",
+                    action_label="Open Dashboard",
+                    icon="CreditCard"
+                )
+                
+                db.add(subscription_notification)
+                logger.info(f"Subscription notification created for user {user_with_subscription.email}")
+                
+            except Exception as notif_error:
+                logger.warning(f"Failed to create subscription notification: {str(notif_error)}")
+            
             db.commit()
             
             # Refresh user data to include the new subscription
@@ -954,7 +997,7 @@ async def refresh_access_token(request: RefreshTokenRequest, db: Session = Depen
 
             token_type="bearer",
 
-            user=UserResponse.from_orm(user)
+            user=UserResponse.model_validate(user)
 
         )
 
@@ -1175,6 +1218,178 @@ def change_user_role(
                 user.subscription.status = 'cancelled'
                 user.subscription.updated_at = datetime.utcnow()
                 logger.info(f"Subscription cancelled for user {user.email} due to role downgrade")
+                
+                # Create subscription cancellation notification
+                try:
+                    from models.notification import Notification, NotificationType, NotificationPriority
+                    
+                    cancellation_notification = Notification(
+                        user_id=user.id,
+                        type=NotificationType.SYSTEM,
+                        title="📋 Shop Owner Subscription Cancelled",
+                        message=f"""Your Shop Owner subscription has been cancelled due to role change.
+
+📋 SUBSCRIPTION STATUS:
+• Plan: Shop Owner (Cancelled)
+• Reason: Role changed to {request.new_role}
+• Cancelled: {datetime.utcnow().strftime('%B %d, %Y at %I:%M %p')}
+
+⚠️ IMPORTANT NOTES:
+• Your shop is no longer active
+• You can no longer list unlimited products
+• Existing orders will still be processed
+• You can reactivate anytime by upgrading back to Shop Owner
+
+💡 TIP: You can upgrade back to Shop Owner anytime from your Settings page to reactivate your shop!
+
+Need help? Contact our support team anytime!
+
+IziShopin Team 🚀""",
+                        related_id=str(user.subscription.id),
+                        related_type="subscription_cancelled",
+                        priority=NotificationPriority.MEDIUM,
+                        action_url="/settings",
+                        action_label="View Settings",
+                        icon="XCircle"
+                    )
+                    
+                    db.add(cancellation_notification)
+                    logger.info(f"Subscription cancellation notification created for user {user.email}")
+                    
+                except Exception as notif_error:
+                    logger.warning(f"Failed to create subscription cancellation notification: {str(notif_error)}")
+        
+        # Create detailed notification for role change
+        try:
+            from models.notification import Notification, NotificationType, NotificationPriority
+            
+            # Create role-specific notification messages
+            role_messages = {
+                'CUSTOMER': {
+                    'title': '🎯 Role Updated - Customer Account',
+                    'message': f"""Welcome to your Customer account, {user.first_name}!
+
+✅ ACCOUNT STATUS: Active Customer
+📅 Updated: {datetime.utcnow().strftime('%B %d, %Y at %I:%M %p')}
+
+🛍️ WHAT YOU CAN DO:
+• Browse and purchase products from any shop
+• Add items to your wishlist
+• Track your orders in real-time
+• Leave reviews and ratings
+• Manage your profile and preferences
+
+💡 TIP: As a customer, you can upgrade to other roles anytime from your Settings page.
+
+Need help? Contact our support team anytime!
+
+IziShopin Team 🚀""",
+                    'icon': 'User'
+                },
+                'DELIVERY_AGENT': {
+                    'title': '🚚 Role Updated - Delivery Agent',
+                    'message': f"""Congratulations, {user.first_name}! You're now a Delivery Agent.
+
+✅ ACCOUNT STATUS: Active Delivery Agent
+📅 Updated: {datetime.utcnow().strftime('%B %d, %Y at %I:%M %p')}
+
+🚚 WHAT YOU CAN DO:
+• View and accept delivery assignments
+• Track delivery routes and schedules
+• Update delivery status in real-time
+• Earn money by delivering orders
+• Access delivery agent dashboard
+
+📋 NEXT STEPS:
+1. Complete your delivery agent profile
+2. Upload required documents
+3. Start accepting delivery assignments
+
+💡 TIP: Check your dashboard regularly for new delivery opportunities!
+
+Need help? Contact our support team anytime!
+
+IziShopin Team 🚀""",
+                    'icon': 'Truck'
+                },
+                'CASUAL_SELLER': {
+                    'title': '🏪 Role Updated - Casual Seller',
+                    'message': f"""Welcome to selling, {user.first_name}! You're now a Casual Seller.
+
+✅ ACCOUNT STATUS: Active Casual Seller
+📅 Updated: {datetime.utcnow().strftime('%B %d, %Y at %I:%M %p')}
+
+🏪 WHAT YOU CAN DO:
+• List products for sale (up to 10 items)
+• Manage your product listings
+• Process customer orders
+• Track your sales and earnings
+• Communicate with customers
+
+📋 NEXT STEPS:
+1. Add your first product listing
+2. Set up your seller profile
+3. Start selling to customers
+
+💡 TIP: As a casual seller, you can upgrade to Shop Owner anytime for unlimited listings!
+
+Need help? Contact our support team anytime!
+
+IziShopin Team 🚀""",
+                    'icon': 'Store'
+                },
+                'SHOP_OWNER': {
+                    'title': '🏬 Role Updated - Shop Owner',
+                    'message': f"""Congratulations, {user.first_name}! You're now a Shop Owner.
+
+✅ ACCOUNT STATUS: Active Shop Owner
+📅 Updated: {datetime.utcnow().strftime('%B %d, %Y at %I:%M %p')}
+
+🏬 WHAT YOU CAN DO:
+• Create and manage your shop
+• List unlimited products
+• Access advanced analytics
+• Manage orders and customers
+• Use marketing tools
+• Set up payment methods
+
+📋 NEXT STEPS:
+1. Create your shop profile
+2. Add your first products
+3. Set up shop policies
+4. Start selling to customers
+
+💡 TIP: Use your shop dashboard to track performance and grow your business!
+
+Need help? Contact our support team anytime!
+
+IziShopin Team 🚀""",
+                    'icon': 'Building2'
+                }
+            }
+            
+            # Get role-specific message
+            role_info = role_messages.get(request.new_role, role_messages['CUSTOMER'])
+            
+            # Create notification
+            notification = Notification(
+                user_id=user.id,
+                type=NotificationType.SYSTEM,
+                title=role_info['title'],
+                message=role_info['message'],
+                related_id=str(user.id),
+                related_type="role_change",
+                priority=NotificationPriority.HIGH,
+                action_url="/settings",
+                action_label="View Settings",
+                icon=role_info['icon']
+            )
+            
+            db.add(notification)
+            logger.info(f"Role change notification created for user {user.email}")
+            
+        except Exception as notif_error:
+            logger.warning(f"Failed to create role change notification: {str(notif_error)}")
         
         db.commit()
         logger.info(f"User role changed successfully: {user.email} {old_role} -> {request.new_role}")

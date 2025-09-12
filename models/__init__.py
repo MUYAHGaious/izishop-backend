@@ -10,4 +10,6 @@ from models.delivery_tracking import DeliveryTracking
 from models.subscription import Subscription
 from models.casual_listing import CasualListing
 from models.delivery_agent import DeliveryAgent, DeliveryAssignment
-from models.transaction_fee import TransactionFee, UserMetrics 
+from models.transaction_fee import TransactionFee, UserMetrics
+from models.notification import Notification, NotificationPreference
+from models.analytics import AnalyticsMetric 

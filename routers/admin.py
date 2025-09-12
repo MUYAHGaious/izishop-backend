@@ -1344,7 +1344,7 @@ def get_subscription_metrics(
         active_subs = db.query(Subscription).filter(Subscription.status == 'active').count()
         
         # Calculate metrics
-        monthly_revenue = active_subs * 29.99  # Shop Owner price
+        monthly_revenue = active_subs * 18000  # Shop Owner price in XAF
         churn_rate = 8.5  # Mock data
         trial_conversions = 72.3  # Mock data
         

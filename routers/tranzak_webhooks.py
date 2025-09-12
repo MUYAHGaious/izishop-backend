@@ -76,7 +76,17 @@ async def get_tranzak_token(scope: str = "collections") -> str:
                     detail=f"Tranzak authentication error: {error_msg}"
                 )
             
-            return token_response["data"]["token"]
+            # Handle different possible response structures
+            if "data" in token_response and "token" in token_response["data"]:
+                return token_response["data"]["token"]
+            elif "token" in token_response:
+                return token_response["token"]
+            else:
+                logger.error(f"No token found in response: {token_response}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Authentication successful but no token returned"
+                )
     except Exception as e:
         logger.error(f"Error getting Tranzak token: {str(e)}")
         raise HTTPException(
@@ -173,7 +183,7 @@ async def create_shop_subscription(
         transaction_ref = f"shop_sub_{current_user.id}_{int(datetime.now(timezone.utc).timestamp())}"
         
         # Extract payment method and details from request
-        payment_method = payment_request.get('paymentMethod', 'visa_mastercard')
+        payment_method = payment_request.paymentMethod
         
         # Base payment data
         payment_data = {
@@ -198,7 +208,7 @@ async def create_shop_subscription(
             # Use mobile wallet charge endpoint
             endpoint = f"{TRANZAK_BASE_URL}/xp021/v1/request/create-mobile-wallet-charge"
             payment_data.update({
-                "mobileWalletNumber": payment_request.get('phoneNumber', ''),
+                "mobileWalletNumber": payment_request.phoneNumber or '',
                 "walletProvider": "MTN" if payment_method == 'mtn_money' else "ORANGE"
             })
         else:
