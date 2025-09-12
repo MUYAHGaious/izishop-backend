@@ -87,6 +87,7 @@ class CreateNotificationRequest(BaseModel):
     icon: Optional[str] = None
     tags: Optional[List[str]] = None
     expires_in_hours: Optional[int] = None
+    category: Optional[str] = None
 
 class UserSummary(BaseModel):
     id: str
@@ -106,6 +107,7 @@ class NotificationBulkRequest(BaseModel):
     icon: Optional[str] = None
     tags: Optional[List[str]] = None
     expires_in_hours: Optional[int] = None
+    category: Optional[str] = None
 
 @router.get("/", response_model=List[NotificationResponse])
 def get_notifications(
@@ -727,3 +729,138 @@ def get_notification_types(
             "Store", "ShoppingBag", "TrendingUp", "Gift", "Heart"
         ]
     }
+
+# Trash Management Endpoints
+@router.get("/trash", response_model=List[NotificationResponse])
+def get_trash_notifications(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get notifications in trash for the current user."""
+    try:
+        service = NotificationService(db)
+        notifications = service.get_trash_notifications(
+            user_id=current_user.id,
+            limit=limit,
+            offset=offset
+        )
+        
+        return [
+            NotificationResponse(
+                id=notif.id,
+                title=notif.title,
+                message=notif.message,
+                type=notif.type.value,
+                priority=notif.priority.value,
+                is_read=notif.is_read,
+                action_url=notif.action_url,
+                action_label=notif.action_label,
+                icon=notif.icon,
+                image_url=notif.image_url,
+                created_at=notif.created_at.isoformat(),
+                read_at=notif.read_at.isoformat() if notif.read_at else None
+            )
+            for notif in notifications
+        ]
+        
+    except Exception as e:
+        logger.error(f"Error getting trash notifications: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve trash notifications"
+        )
+
+@router.get("/trash/count")
+def get_trash_count(
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get count of notifications in trash."""
+    try:
+        service = NotificationService(db)
+        count = service.get_trash_count(current_user.id)
+        return {"count": count}
+        
+    except Exception as e:
+        logger.error(f"Error getting trash count: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get trash count"
+        )
+
+@router.patch("/trash/{notification_id}/restore")
+def restore_from_trash(
+    notification_id: str,
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Restore a notification from trash."""
+    try:
+        service = NotificationService(db)
+        success = service.restore_from_trash(notification_id, current_user.id)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found in trash"
+            )
+        
+        return {"message": "Notification restored from trash"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error restoring notification from trash: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to restore notification from trash"
+        )
+
+@router.delete("/trash/{notification_id}/permanent")
+def permanently_delete_notification(
+    notification_id: str,
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Permanently delete a notification."""
+    try:
+        service = NotificationService(db)
+        success = service.permanently_delete_notification(notification_id, current_user.id)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found"
+            )
+        
+        return {"message": "Notification permanently deleted"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error permanently deleting notification: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to permanently delete notification"
+        )
+
+@router.delete("/trash/empty")
+def empty_trash(
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Empty trash - permanently delete all trashed notifications."""
+    try:
+        service = NotificationService(db)
+        count = service.empty_trash(current_user.id)
+        
+        return {"message": f"Trash emptied - {count} notifications permanently deleted"}
+        
+    except Exception as e:
+        logger.error(f"Error emptying trash: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to empty trash"
+        )

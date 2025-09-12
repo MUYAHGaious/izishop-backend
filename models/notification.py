@@ -59,6 +59,8 @@ class Notification(Base):
     is_pushed = Column(Boolean, default=False)  # Whether push notification was sent
     read_at = Column(DateTime, nullable=True)
     clicked_at = Column(DateTime, nullable=True)
+    deleted_at = Column(DateTime, nullable=True, index=True)  # When moved to trash
+    permanent_delete_at = Column(DateTime, nullable=True, index=True)  # When to permanently delete
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, index=True)

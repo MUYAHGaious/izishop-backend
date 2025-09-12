@@ -186,8 +186,8 @@ class NotificationService:
             logger.error(f"Error marking all notifications as read: {str(e)}")
             return 0
 
-    def delete_notification(self, notification_id: str, user_id: str) -> bool:
-        """Soft delete a notification."""
+    def move_to_trash(self, notification_id: str, user_id: str) -> bool:
+        """Move a notification to trash (soft delete)."""
         try:
             notification = self.db.query(Notification).filter(
                 Notification.id == notification_id,
@@ -198,13 +198,21 @@ class NotificationService:
                 return False
             
             notification.status = NotificationStatus.DELETED
+            notification.deleted_at = datetime.utcnow()
+            notification.permanent_delete_at = datetime.utcnow() + timedelta(days=30)
+            
             self.db.commit()
+            logger.info(f"Moved notification {notification_id} to trash")
             return True
             
         except Exception as e:
             self.db.rollback()
-            logger.error(f"Error deleting notification: {str(e)}")
+            logger.error(f"Error moving notification to trash: {str(e)}")
             return False
+
+    def delete_notification(self, notification_id: str, user_id: str) -> bool:
+        """Soft delete a notification (alias for move_to_trash)."""
+        return self.move_to_trash(notification_id, user_id)
 
     def get_unread_count(self, user_id: str) -> int:
         """Get count of unread notifications for a user."""
@@ -335,6 +343,99 @@ class NotificationService:
         
         return template
 
+    def get_trash_notifications(self, user_id: str, limit: int = 20, offset: int = 0) -> List[Notification]:
+        """Get trashed notifications for a user."""
+        try:
+            return self.db.query(Notification).filter(
+                Notification.user_id == user_id,
+                Notification.status == NotificationStatus.DELETED,
+                Notification.permanent_delete_at > datetime.utcnow()  # Not yet permanently deleted
+            ).order_by(desc(Notification.deleted_at)).offset(offset).limit(limit).all()
+            
+        except Exception as e:
+            logger.error(f"Error getting trash notifications: {str(e)}")
+            return []
+
+    def get_trash_count(self, user_id: str) -> int:
+        """Get count of notifications in trash."""
+        try:
+            return self.db.query(Notification).filter(
+                Notification.user_id == user_id,
+                Notification.status == NotificationStatus.DELETED,
+                Notification.permanent_delete_at > datetime.utcnow()
+            ).count()
+        except Exception as e:
+            logger.error(f"Error getting trash count: {str(e)}")
+            return 0
+
+    def restore_from_trash(self, notification_id: str, user_id: str) -> bool:
+        """Restore a notification from trash."""
+        try:
+            notification = self.db.query(Notification).filter(
+                Notification.id == notification_id,
+                Notification.user_id == user_id,
+                Notification.status == NotificationStatus.DELETED
+            ).first()
+            
+            if not notification:
+                return False
+            
+            # Restore the notification status based on read state
+            notification.status = NotificationStatus.READ if notification.is_read else NotificationStatus.UNREAD
+            notification.deleted_at = None
+            notification.permanent_delete_at = None
+            
+            self.db.commit()
+            logger.info(f"Restored notification {notification_id} from trash")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error restoring notification from trash: {str(e)}")
+            return False
+
+    def permanently_delete_notification(self, notification_id: str, user_id: str) -> bool:
+        """Permanently delete a notification."""
+        try:
+            notification = self.db.query(Notification).filter(
+                Notification.id == notification_id,
+                Notification.user_id == user_id
+            ).first()
+            
+            if not notification:
+                return False
+            
+            self.db.delete(notification)
+            self.db.commit()
+            logger.info(f"Permanently deleted notification {notification_id}")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error permanently deleting notification: {str(e)}")
+            return False
+
+    def empty_trash(self, user_id: str) -> int:
+        """Permanently delete all notifications in trash for a user."""
+        try:
+            notifications = self.db.query(Notification).filter(
+                Notification.user_id == user_id,
+                Notification.status == NotificationStatus.DELETED
+            ).all()
+            
+            count = len(notifications)
+            for notification in notifications:
+                self.db.delete(notification)
+            
+            self.db.commit()
+            logger.info(f"Emptied trash for user {user_id}: {count} notifications deleted")
+            return count
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error emptying trash: {str(e)}")
+            return 0
+
     def cleanup_expired_notifications(self) -> int:
         """Clean up expired notifications."""
         try:
@@ -349,6 +450,27 @@ class NotificationService:
         except Exception as e:
             self.db.rollback()
             logger.error(f"Error cleaning up expired notifications: {str(e)}")
+            return 0
+
+    def cleanup_old_trash(self) -> int:
+        """Permanently delete notifications that have been in trash for 30+ days."""
+        try:
+            notifications_to_delete = self.db.query(Notification).filter(
+                Notification.status == NotificationStatus.DELETED,
+                Notification.permanent_delete_at <= datetime.utcnow()
+            ).all()
+            
+            count = len(notifications_to_delete)
+            for notification in notifications_to_delete:
+                self.db.delete(notification)
+            
+            self.db.commit()
+            logger.info(f"Permanently deleted {count} old notifications from trash")
+            return count
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error cleaning up old trash: {str(e)}")
             return 0
 
 # Convenience functions for common notification types
