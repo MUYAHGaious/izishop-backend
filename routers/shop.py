@@ -138,6 +138,26 @@ def get_current_user_shop(
             detail="Failed to retrieve shop"
         )
 
+@router.get("/check-shop-exists")
+async def check_shop_exists(
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Check if the current user has a shop"""
+    try:
+        shop = get_shop_by_owner_id(db, current_user.id)
+        has_shop = shop is not None
+        
+        return {
+            "success": True,
+            "has_shop": has_shop,
+            "shop_id": shop.id if shop else None,
+            "message": "Shop exists" if has_shop else "No shop found"
+        }
+    except Exception as e:
+        logger.error(f"Error checking shop existence: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @router.get("/my-shops", response_model=List[ShopResponse])
 def get_current_user_shops(
     current_user: UserResponse = Depends(get_current_user),

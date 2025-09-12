@@ -25,6 +25,7 @@ class Shop(Base):
 
     # Relationships
     owner = relationship("User", back_populates="shop")
+    analytics_metrics = relationship("AnalyticsMetric", back_populates="shop")
     # ratings = relationship("Rating", back_populates="shop")
     # stats = relationship("ShopStats", uselist=False, back_populates="shop")
     # orders = relationship("Order", back_populates="shop") 

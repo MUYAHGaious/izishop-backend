@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 
 from database.connection import get_db
+from models.user import User
 
 from services.auth import (
 
@@ -40,6 +41,10 @@ from schemas.user import UserLogin, UserRegister, Token, UserResponse
 from core.config import settings
 
 from pydantic import BaseModel
+
+class RoleChangeRequest(BaseModel):
+    new_role: str
+    reason: Optional[str] = None
 
 
 
@@ -586,17 +591,91 @@ async def admin_login(admin_credentials: AdminLogin, request: Request, db: Sessi
 
 
 
-@router.get("/me", response_model=UserResponse)
-
-def get_current_user_info(current_user: UserResponse = Depends(get_current_user)):
-
-    """Get current user information."""
-
+@router.get("/me")
+def get_current_user_info(
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get current user information with subscription data."""
     try:
-
         logger.info(f"User info requested for: {current_user.email}")
-
-        return current_user
+        
+        # Fetch user with subscription data from database
+        user_with_subscription = db.query(User).filter(User.id == current_user.id).first()
+        if not user_with_subscription:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Convert to dict and add subscription data
+        user_data = {
+            "id": user_with_subscription.id,
+            "email": user_with_subscription.email,
+            "first_name": user_with_subscription.first_name,
+            "last_name": user_with_subscription.last_name,
+            "phone": user_with_subscription.phone,
+            "role": user_with_subscription.role,
+            "is_active": user_with_subscription.is_active,
+            "is_verified": user_with_subscription.is_verified,
+            "profile_image_url": user_with_subscription.profile_image_url,
+            "created_at": user_with_subscription.created_at,
+            "last_login": user_with_subscription.last_login,
+        }
+        
+        # Add subscription data if exists
+        if user_with_subscription.subscription:
+            user_data["subscription"] = {
+                "id": user_with_subscription.subscription.id,
+                "plan_type": user_with_subscription.subscription.plan_type,
+                "status": user_with_subscription.subscription.status,
+                "current_period_start": user_with_subscription.subscription.current_period_start,
+                "current_period_end": user_with_subscription.subscription.current_period_end,
+                "monthly_fee": float(user_with_subscription.subscription.monthly_fee),
+                "trial_ends_at": user_with_subscription.subscription.trial_ends_at,
+                "created_at": user_with_subscription.subscription.created_at,
+                "updated_at": user_with_subscription.subscription.updated_at
+            }
+        
+        # If user is SHOP_OWNER but has no subscription, create one (for existing users)
+        if (user_with_subscription.role == 'SHOP_OWNER' and 
+            not user_with_subscription.subscription):
+            
+            logger.info(f"User {user_with_subscription.id} is SHOP_OWNER but has no subscription. Creating one...")
+            
+            from models.subscription import Subscription
+            from datetime import datetime, timedelta
+            
+            # Create subscription record
+            subscription = Subscription(
+                user_id=user_with_subscription.id,
+                plan_type='shop_owner',
+                status='active',
+                current_period_start=datetime.utcnow(),
+                current_period_end=datetime.utcnow() + timedelta(days=30),
+                monthly_fee=29.99,
+                trial_ends_at=datetime.utcnow() + timedelta(days=7),
+                tranzak_request_id=f"migration_{user_with_subscription.id}_{int(datetime.utcnow().timestamp())}"
+            )
+            
+            db.add(subscription)
+            db.commit()
+            
+            # Refresh user data to include the new subscription
+            user_with_subscription = db.query(User).filter(User.id == current_user.id).first()
+            
+            # Add subscription data if exists
+            if user_with_subscription.subscription:
+                user_data["subscription"] = {
+                    "id": user_with_subscription.subscription.id,
+                    "plan_type": user_with_subscription.subscription.plan_type,
+                    "status": user_with_subscription.subscription.status,
+                    "current_period_start": user_with_subscription.subscription.current_period_start,
+                    "current_period_end": user_with_subscription.subscription.current_period_end,
+                    "monthly_fee": float(user_with_subscription.subscription.monthly_fee),
+                    "trial_ends_at": user_with_subscription.subscription.trial_ends_at,
+                    "created_at": user_with_subscription.subscription.created_at,
+                    "updated_at": user_with_subscription.subscription.updated_at
+                }
+        
+        return user_data
 
     except Exception as e:
 
@@ -1050,4 +1129,69 @@ async def upgrade_user_role(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to upgrade role"
+        ) 
+
+@router.post("/change-role")
+def change_user_role(
+    request: RoleChangeRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Change user role with confirmation"""
+    try:
+        logger.info(f"Role change requested for user {current_user.email}: {current_user.role} -> {request.new_role}")
+        
+        # Validate new role
+        valid_roles = ['CUSTOMER', 'DELIVERY_AGENT', 'CASUAL_SELLER', 'SHOP_OWNER']
+        if request.new_role not in valid_roles:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid role. Must be one of: {', '.join(valid_roles)}"
+            )
+        
+        # Check if user is already this role
+        if current_user.role == request.new_role:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"You are already a {request.new_role}"
+            )
+        
+        # Get user from database
+        user = db.query(User).filter(User.id == current_user.id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Update user role
+        old_role = user.role
+        user.role = request.new_role
+        user.updated_at = datetime.utcnow()
+        
+        # If downgrading from SHOP_OWNER, cancel any active subscription
+        if old_role == 'SHOP_OWNER' and request.new_role != 'SHOP_OWNER':
+            if user.subscription:
+                user.subscription.status = 'cancelled'
+                user.subscription.updated_at = datetime.utcnow()
+                logger.info(f"Subscription cancelled for user {user.email} due to role downgrade")
+        
+        db.commit()
+        logger.info(f"User role changed successfully: {user.email} {old_role} -> {request.new_role}")
+        
+        return {
+            "success": True,
+            "message": f"Role changed from {old_role} to {request.new_role} successfully",
+            "new_role": request.new_role,
+            "old_role": old_role
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Role change failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to change role"
         ) 

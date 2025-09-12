@@ -1,10 +1,8 @@
 from sqlalchemy import Column, Integer, String, DateTime, Float, Boolean, Text, JSON, ForeignKey, Index
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
+from database.base import Base
 from datetime import datetime
 import enum
-
-Base = declarative_base()
 
 class TimeGranularity(enum.Enum):
     HOURLY = "hourly"
@@ -37,7 +35,7 @@ class AnalyticsMetric(Base):
     granularity = Column(String(20), index=True)  # hourly, daily, weekly, monthly
     
     # Dimensional data
-    shop_id = Column(Integer, ForeignKey("shops.id"), nullable=True, index=True)
+    shop_id = Column(String, ForeignKey("shops.id"), nullable=True, index=True)
     category_id = Column(Integer, nullable=True, index=True)
     region = Column(String(100), nullable=True, index=True)
     user_role = Column(String(50), nullable=True, index=True)
@@ -47,7 +45,7 @@ class AnalyticsMetric(Base):
     count = Column(Integer, default=0)
     
     # Additional metadata
-    metadata = Column(JSON, nullable=True)
+    meta_data = Column(JSON, nullable=True)
     
     # Audit fields
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -116,12 +114,12 @@ class MLForecast(Base):
     model_version = Column(String(50))
     
     # Dimensional filters
-    shop_id = Column(Integer, ForeignKey("shops.id"), nullable=True)
+    shop_id = Column(String, ForeignKey("shops.id"), nullable=True)
     category_id = Column(Integer, nullable=True)
     region = Column(String(100), nullable=True)
     
     # Additional metadata
-    metadata = Column(JSON)
+    meta_data = Column(JSON)
 
 class AnomalyDetection(Base):
     """
@@ -147,17 +145,17 @@ class AnomalyDetection(Base):
     threshold = Column(Float)
     
     # Dimensional context
-    shop_id = Column(Integer, ForeignKey("shops.id"), nullable=True)
+    shop_id = Column(String, ForeignKey("shops.id"), nullable=True)
     category_id = Column(Integer, nullable=True)
     region = Column(String(100), nullable=True)
     
     # Resolution tracking
     acknowledged = Column(Boolean, default=False)
-    acknowledged_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    acknowledged_by = Column(String, ForeignKey("users.id"), nullable=True)
     acknowledged_at = Column(DateTime, nullable=True)
     
     # Additional data
-    metadata = Column(JSON)
+    meta_data = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class AnalyticsAuditLog(Base):
@@ -171,7 +169,7 @@ class AnalyticsAuditLog(Base):
     
     # Audit metadata
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    user_id = Column(String, ForeignKey("users.id"), index=True)
     user_role = Column(String(50), index=True)
     
     # Action details
@@ -193,7 +191,7 @@ class AnalyticsAuditLog(Base):
     error_message = Column(Text, nullable=True)
     
     # Additional metadata
-    metadata = Column(JSON)
+    meta_data = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships

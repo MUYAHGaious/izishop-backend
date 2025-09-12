@@ -1,461 +1,207 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
-from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+"""
+Analytics and statistics endpoints for IziShopin
+"""
 import logging
+from datetime import datetime, timedelta
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from sqlalchemy import func, and_, desc
+from database.connection import get_db
+from services.auth import get_current_user
+from models.user import User
+from models.product import Product
+from models.order import Order, OrderItem
+from models.shop import Shop
+from typing import Dict, Any
 
-from ..database import get_db
-from ..models.user import User, UserRole
-from ..schemas.user import UserResponse
-from ..auth import get_current_user
-from ..services.analytics_service import analytics_service
-from ..models.analytics import AnalyticsAuditLog
-
-router = APIRouter(prefix="/analytics", tags=["analytics"])
+router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 logger = logging.getLogger(__name__)
 
-def check_analytics_access(current_user: User, required_role: UserRole = UserRole.ADMIN):
-    """Check if user has access to analytics features"""
-    if current_user.role not in [UserRole.ADMIN, UserRole.SHOP_OWNER]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Analytics access requires admin or shop owner privileges"
-        )
-    
-    if required_role == UserRole.ADMIN and current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
-
-@router.get("/charts/realtime/{metric_type}")
-async def get_realtime_chart_data(
-    metric_type: str,
-    request: Request,
-    time_range: str = Query("24h", description="Time range: 1h, 24h, 7d, 30d, 90d"),
-    granularity: str = Query("auto", description="Data granularity: auto, hourly, daily"),
-    shop_id: Optional[int] = Query(None, description="Filter by shop ID"),
-    category_id: Optional[int] = Query(None, description="Filter by category ID"),
-    region: Optional[str] = Query(None, description="Filter by region"),
-    current_user: UserResponse = Depends(get_current_user),
+@router.get("/user-stats")
+async def get_user_statistics(
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Get real-time chart data with dynamic filtering and role-based access
-    """
+    """Get comprehensive user statistics including products, orders, and revenue"""
     try:
-        check_analytics_access(current_user)
+        user_id = current_user.id
         
-        # Shop owners can only see their own data
-        if current_user.role == UserRole.SHOP_OWNER:
-            # Get user's shop ID
-            user_shop = db.query(Shop).filter(Shop.owner_id == current_user.id).first()
-            if user_shop:
-                shop_id = user_shop.id
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="No shop found for this user"
-                )
+        # Get current month start and end
+        now = datetime.utcnow()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_end = month_start + timedelta(days=32)
+        month_end = month_end.replace(day=1) - timedelta(days=1)
         
-        # Validate metric type
-        valid_metrics = ["revenue", "orders", "users", "sessions", "conversion", "average_order_value"]
-        if metric_type not in valid_metrics:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid metric type. Valid options: {', '.join(valid_metrics)}"
-            )
+        # Get user's shop if they have one
+        user_shop = db.query(Shop).filter(Shop.owner_id == user_id).first()
+        shop_id = user_shop.id if user_shop else None
         
-        # Auto-determine granularity based on time range
-        if granularity == "auto":
-            if time_range in ["1h", "24h"]:
-                granularity = "hourly"
-            else:
-                granularity = "daily"
+        # Count products listed by user
+        total_products = db.query(Product).filter(
+            Product.seller_id == user_id,
+            Product.is_active == True
+        ).count()
         
-        # Get chart data
-        chart_data = await analytics_service.get_realtime_chart_data(
-            db=db,
-            metric_type=metric_type,
-            time_range=time_range,
-            granularity=granularity,
-            shop_id=shop_id,
-            category_id=category_id,
-            region=region,
-            user_id=current_user.id,
-            user_role=current_user.role.value
-        )
+        # Count products listed this month
+        products_this_month = db.query(Product).filter(
+            Product.seller_id == user_id,
+            Product.is_active == True,
+            Product.created_at >= month_start,
+            Product.created_at <= month_end
+        ).count()
         
-        return {
-            "success": True,
-            "data": chart_data,
-            "metadata": {
-                "user_role": current_user.role.value,
-                "access_level": "shop_specific" if current_user.role == UserRole.SHOP_OWNER else "platform_wide",
-                "generated_at": datetime.utcnow().isoformat()
-            }
-        }
+        # Count orders received (if user has a shop)
+        total_orders = 0
+        orders_this_month = 0
+        total_revenue = 0.0
+        revenue_this_month = 0.0
         
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting chart data: {str(e)}")
+        if shop_id:
+            # Total orders for the shop
+            total_orders = db.query(Order).filter(Order.shop_id == shop_id).count()
+            
+            # Orders this month
+            orders_this_month = db.query(Order).filter(
+                Order.shop_id == shop_id,
+                Order.created_at >= month_start,
+                Order.created_at <= month_end
+            ).count()
+            
+            # Calculate total revenue from completed orders
+            completed_orders = db.query(Order).filter(
+                Order.shop_id == shop_id,
+                Order.status.in_(['delivered', 'shipped']),
+                Order.payment_status == 'paid'
+            ).all()
+            
+            total_revenue = sum(float(order.total_amount) for order in completed_orders)
+            
+            # Revenue this month
+            completed_orders_this_month = db.query(Order).filter(
+                Order.shop_id == shop_id,
+                Order.status.in_(['delivered', 'shipped']),
+                Order.payment_status == 'paid',
+                Order.created_at >= month_start,
+                Order.created_at <= month_end
+            ).all()
+            
+            revenue_this_month = sum(float(order.total_amount) for order in completed_orders_this_month)
         
-        # Log failed access attempt
-        await analytics_service.log_audit_event(
-            db, current_user.id, current_user.role.value, 
-            "view_chart", f"{metric_type}_chart",
-            status="failed", error_message=str(e),
-            ip_address=request.client.host
-        )
-        
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve chart data"
-        )
-
-@router.get("/forecasts/{metric_type}")
-async def get_forecasts(
-    metric_type: str,
-    request: Request,
-    days_ahead: int = Query(7, ge=1, le=30, description="Days to forecast ahead"),
-    shop_id: Optional[int] = Query(None, description="Filter by shop ID"),
-    category_id: Optional[int] = Query(None, description="Filter by category ID"),
-    region: Optional[str] = Query(None, description="Filter by region"),
-    current_user: UserResponse = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get ML-based forecasts for metrics
-    """
-    try:
-        check_analytics_access(current_user)
-        
-        # Shop owners can only see their own forecasts
-        if current_user.role == UserRole.SHOP_OWNER:
-            user_shop = db.query(Shop).filter(Shop.owner_id == current_user.id).first()
-            if user_shop:
-                shop_id = user_shop.id
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="No shop found for this user"
-                )
-        
-        # Generate new forecasts if needed
-        forecasts = await analytics_service.generate_forecast(
-            db=db,
-            metric_type=metric_type,
-            days_ahead=days_ahead,
-            shop_id=shop_id,
-            category_id=category_id,
-            region=region
-        )
-        
-        # Log access
-        await analytics_service.log_audit_event(
-            db, current_user.id, current_user.role.value,
-            "view_forecast", f"{metric_type}_forecast",
-            filters_applied={
-                "shop_id": shop_id, "category_id": category_id,
-                "region": region, "days_ahead": days_ahead
-            },
-            ip_address=request.client.host
-        )
-        
-        return {
-            "success": True,
-            "metric_type": metric_type,
-            "forecasts": forecasts,
-            "metadata": {
-                "days_ahead": days_ahead,
-                "model_type": "linear_regression",
-                "confidence_level": 0.95,
-                "generated_at": datetime.utcnow().isoformat()
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting forecasts: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve forecasts"
-        )
-
-@router.get("/anomalies")
-async def get_anomalies(
-    request: Request,
-    metric_type: Optional[str] = Query(None, description="Filter by metric type"),
-    shop_id: Optional[int] = Query(None, description="Filter by shop ID"),
-    category_id: Optional[int] = Query(None, description="Filter by category ID"),
-    region: Optional[str] = Query(None, description="Filter by region"),
-    severity: Optional[str] = Query(None, description="Filter by severity: low, medium, high, critical"),
-    hours_back: int = Query(24, ge=1, le=168, description="Hours to look back"),
-    current_user: UserResponse = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get anomaly detections with filtering
-    """
-    try:
-        check_analytics_access(current_user)
-        
-        # Shop owners can only see their own anomalies
-        if current_user.role == UserRole.SHOP_OWNER:
-            user_shop = db.query(Shop).filter(Shop.owner_id == current_user.id).first()
-            if user_shop:
-                shop_id = user_shop.id
-            else:
-                return {"success": True, "anomalies": [], "metadata": {"total": 0}}
-        
-        # Get anomalies from service
-        if metric_type:
-            anomalies = await analytics_service.get_recent_anomalies(
-                db, metric_type, shop_id, category_id, region
-            )
+        # Calculate usage limits based on user role
+        if current_user.role == 'SHOP_OWNER':
+            product_limit = None  # Unlimited
+            storage_limit = None  # Unlimited
+        elif current_user.role == 'CASUAL_SELLER':
+            product_limit = 10
+            storage_limit = 100  # MB
         else:
-            # Get anomalies for all metric types
-            anomalies = []
-            for mt in ["revenue", "orders", "users"]:
-                mt_anomalies = await analytics_service.get_recent_anomalies(
-                    db, mt, shop_id, category_id, region
-                )
-                anomalies.extend(mt_anomalies)
+            product_limit = 0
+            storage_limit = 10  # MB
         
-        # Filter by severity if specified
-        if severity:
-            anomalies = [a for a in anomalies if a.get("severity") == severity]
+        # Calculate usage percentages
+        product_usage_percent = 0
+        if product_limit:
+            product_usage_percent = min((total_products / product_limit) * 100, 100)
         
-        # Log access
-        await analytics_service.log_audit_event(
-            db, current_user.id, current_user.role.value,
-            "view_anomalies", "anomaly_detection",
-            filters_applied={
-                "metric_type": metric_type, "shop_id": shop_id,
-                "category_id": category_id, "region": region,
-                "severity": severity, "hours_back": hours_back
-            },
-            ip_address=request.client.host
-        )
+        # Mock storage usage (in a real app, you'd calculate actual file sizes)
+        storage_used = total_products * 2  # Assume 2MB per product
+        storage_usage_percent = 0
+        if storage_limit:
+            storage_usage_percent = min((storage_used / storage_limit) * 100, 100)
         
         return {
             "success": True,
-            "anomalies": anomalies,
-            "metadata": {
-                "total": len(anomalies),
-                "filters": {
-                    "metric_type": metric_type,
-                    "severity": severity,
-                    "hours_back": hours_back
+            "data": {
+                "overview": {
+                    "total_products": total_products,
+                    "total_orders": total_orders,
+                    "total_revenue": round(total_revenue, 2),
+                    "products_this_month": products_this_month,
+                    "orders_this_month": orders_this_month,
+                    "revenue_this_month": round(revenue_this_month, 2)
                 },
-                "generated_at": datetime.utcnow().isoformat()
+                "usage": {
+                    "products": {
+                        "used": total_products,
+                        "limit": product_limit,
+                        "percentage": round(product_usage_percent, 1)
+                    },
+                    "storage": {
+                        "used_mb": storage_used,
+                        "limit_mb": storage_limit,
+                        "percentage": round(storage_usage_percent, 1)
+                    }
+                },
+                "subscription": {
+                    "plan": current_user.role,
+                    "has_shop": shop_id is not None,
+                    "shop_id": shop_id
+                }
             }
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error getting anomalies: {str(e)}")
+        logger.error(f"Error getting user statistics: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve anomalies"
+            detail="Failed to retrieve user statistics"
         )
 
-@router.post("/events/realtime")
-async def process_realtime_event(
-    event_data: Dict[str, Any],
-    request: Request,
-    current_user: UserResponse = Depends(get_current_user),
-    db: Session = Depends(get_db)
+@router.get("/recent-activity")
+async def get_recent_activity(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    limit: int = 10
 ):
-    """
-    Process real-time events (for internal use or webhooks)
-    """
+    """Get recent activity for the user"""
     try:
-        check_analytics_access(current_user, UserRole.ADMIN)
+        user_id = current_user.id
+        activities = []
         
-        # Process the event
-        result = await analytics_service.process_realtime_event(db, event_data)
+        # Get user's shop
+        user_shop = db.query(Shop).filter(Shop.owner_id == user_id).first()
         
-        # Log the processing
-        await analytics_service.log_audit_event(
-            db, current_user.id, current_user.role.value,
-            "process_event", "realtime_event",
-            filters_applied={"event_type": event_data.get("event_type")},
-            ip_address=request.client.host
-        )
+        # Recent products created
+        recent_products = db.query(Product).filter(
+            Product.seller_id == user_id
+        ).order_by(desc(Product.created_at)).limit(5).all()
         
-        return {
-            "success": True,
-            "result": result,
-            "processed_at": datetime.utcnow().isoformat()
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error processing realtime event: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to process realtime event"
-        )
-
-@router.get("/audit-logs")
-async def get_audit_logs(
-    request: Request,
-    limit: int = Query(100, ge=1, le=1000, description="Number of logs to retrieve"),
-    offset: int = Query(0, ge=0, description="Offset for pagination"),
-    user_id: Optional[int] = Query(None, description="Filter by user ID"),
-    action: Optional[str] = Query(None, description="Filter by action"),
-    resource: Optional[str] = Query(None, description="Filter by resource"),
-    start_date: Optional[datetime] = Query(None, description="Start date filter"),
-    end_date: Optional[datetime] = Query(None, description="End date filter"),
-    current_user: UserResponse = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get audit logs (admin only)
-    """
-    try:
-        check_analytics_access(current_user, UserRole.ADMIN)
-        
-        # Build query
-        query = db.query(AnalyticsAuditLog)
-        
-        # Apply filters
-        if user_id:
-            query = query.filter(AnalyticsAuditLog.user_id == user_id)
-        if action:
-            query = query.filter(AnalyticsAuditLog.action == action)
-        if resource:
-            query = query.filter(AnalyticsAuditLog.resource == resource)
-        if start_date:
-            query = query.filter(AnalyticsAuditLog.timestamp >= start_date)
-        if end_date:
-            query = query.filter(AnalyticsAuditLog.timestamp <= end_date)
-        
-        # Get total count
-        total = query.count()
-        
-        # Get paginated results
-        logs = query.order_by(AnalyticsAuditLog.timestamp.desc()).offset(offset).limit(limit).all()
-        
-        # Format response
-        formatted_logs = []
-        for log in logs:
-            formatted_logs.append({
-                "id": log.id,
-                "timestamp": log.timestamp.isoformat(),
-                "user_id": log.user_id,
-                "user_role": log.user_role,
-                "action": log.action,
-                "resource": log.resource,
-                "status": log.status,
-                "ip_address": log.ip_address,
-                "filters_applied": log.filters_applied,
-                "time_range": log.time_range,
-                "error_message": log.error_message
+        for product in recent_products:
+            activities.append({
+                "type": "product_created",
+                "title": f"Created product: {product.name}",
+                "description": f"Listed for ${product.price}",
+                "timestamp": product.created_at.isoformat(),
+                "icon": "package"
             })
         
-        # Log this audit access
-        await analytics_service.log_audit_event(
-            db, current_user.id, current_user.role.value,
-            "view_audit_logs", "audit_logs",
-            ip_address=request.client.host
-        )
+        # Recent orders (if user has a shop)
+        if user_shop:
+            recent_orders = db.query(Order).filter(
+                Order.shop_id == user_shop.id
+            ).order_by(desc(Order.created_at)).limit(5).all()
+            
+            for order in recent_orders:
+                activities.append({
+                    "type": "order_received",
+                    "title": f"New order received",
+                    "description": f"Order #{order.id[:8]} - ${order.total_amount}",
+                    "timestamp": order.created_at.isoformat(),
+                    "icon": "shopping-cart"
+                })
+        
+        # Sort activities by timestamp and limit
+        activities.sort(key=lambda x: x['timestamp'], reverse=True)
+        activities = activities[:limit]
         
         return {
             "success": True,
-            "logs": formatted_logs,
-            "metadata": {
-                "total": total,
-                "limit": limit,
-                "offset": offset,
-                "returned": len(formatted_logs)
-            }
+            "data": activities
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error getting audit logs: {str(e)}")
+        logger.error(f"Error getting recent activity: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve audit logs"
-        )
-
-@router.get("/dashboard/overview")
-async def get_analytics_overview(
-    request: Request,
-    time_range: str = Query("7d", description="Time range for overview"),
-    current_user: UserResponse = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get analytics dashboard overview with key metrics
-    """
-    try:
-        check_analytics_access(current_user)
-        
-        shop_id = None
-        if current_user.role == UserRole.SHOP_OWNER:
-            user_shop = db.query(Shop).filter(Shop.owner_id == current_user.id).first()
-            if user_shop:
-                shop_id = user_shop.id
-        
-        # Get key metrics
-        revenue_data = await analytics_service.get_realtime_chart_data(
-            db, "revenue", time_range, shop_id=shop_id,
-            user_id=current_user.id, user_role=current_user.role.value
-        )
-        
-        orders_data = await analytics_service.get_realtime_chart_data(
-            db, "orders", time_range, shop_id=shop_id,
-            user_id=current_user.id, user_role=current_user.role.value
-        )
-        
-        users_data = await analytics_service.get_realtime_chart_data(
-            db, "users", time_range, shop_id=shop_id,
-            user_id=current_user.id, user_role=current_user.role.value
-        ) if current_user.role == UserRole.ADMIN else None
-        
-        # Get recent anomalies
-        anomalies = []
-        for metric_type in ["revenue", "orders"]:
-            metric_anomalies = await analytics_service.get_recent_anomalies(
-                db, metric_type, shop_id
-            )
-            anomalies.extend(metric_anomalies)
-        
-        # Log access
-        await analytics_service.log_audit_event(
-            db, current_user.id, current_user.role.value,
-            "view_overview", "analytics_overview",
-            time_range=time_range,
-            ip_address=request.client.host
-        )
-        
-        return {
-            "success": True,
-            "overview": {
-                "revenue": revenue_data,
-                "orders": orders_data,
-                "users": users_data,
-                "anomalies": anomalies[:5],  # Latest 5 anomalies
-                "time_range": time_range,
-                "user_role": current_user.role.value,
-                "shop_specific": shop_id is not None
-            },
-            "generated_at": datetime.utcnow().isoformat()
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting analytics overview: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve analytics overview"
+            detail="Failed to retrieve recent activity"
         )
