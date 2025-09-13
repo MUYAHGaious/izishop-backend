@@ -12,4 +12,5 @@ from models.casual_listing import CasualListing
 from models.delivery_agent import DeliveryAgent, DeliveryAssignment
 from models.transaction_fee import TransactionFee, UserMetrics
 from models.notification import Notification, NotificationPreference
-from models.analytics import AnalyticsMetric 
+from models.analytics import AnalyticsMetric
+from models.wishlist import Wishlist, WishlistPreference 

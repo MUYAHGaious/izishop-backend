@@ -864,3 +864,30 @@ def empty_trash(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to empty trash"
         )
+
+# Admin cleanup endpoints
+@router.post("/admin/cleanup")
+def manual_cleanup_notifications(
+    admin_user: UserResponse = Depends(verify_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Manually trigger notification cleanup (admin only)."""
+    try:
+        from tasks.notification_cleanup import manual_cleanup
+        import asyncio
+        
+        # Run the async cleanup task
+        result = asyncio.create_task(manual_cleanup())
+        cleanup_result = asyncio.get_event_loop().run_until_complete(result)
+        
+        return {
+            "message": "Notification cleanup completed",
+            "result": cleanup_result
+        }
+        
+    except Exception as e:
+        logger.error(f"Error running manual cleanup: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to run notification cleanup"
+        )

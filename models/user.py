@@ -39,6 +39,8 @@ class User(Base):
     metrics = relationship("UserMetrics", uselist=False, back_populates="user")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
     notification_preferences = relationship("NotificationPreference", uselist=False, back_populates="user", cascade="all, delete-orphan")
+    wishlist_items = relationship("Wishlist", back_populates="user", cascade="all, delete-orphan")
+    wishlist_preferences = relationship("WishlistPreference", uselist=False, back_populates="user", cascade="all, delete-orphan")
     # orders_as_customer = relationship("Order", back_populates="customer", foreign_keys="Order.customer_id")
     # products_as_seller = relationship("Product", back_populates="seller", foreign_keys="Product.seller_id")
     # deliveries_assigned = relationship("Delivery", back_populates="delivery_agent", foreign_keys="Delivery.delivery_agent_id")

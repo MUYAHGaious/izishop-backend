@@ -316,6 +316,45 @@ class NotificationService:
         
         return count
     
+    async def delete_old_notifications(self, days: int = 30) -> int:
+        """Delete notifications older than specified days"""
+        
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        
+        # Delete old archived notifications
+        archived_count = self.db.query(Notification).filter(
+            and_(
+                Notification.status == NotificationStatus.ARCHIVED,
+                Notification.created_at < cutoff_date
+            )
+        ).delete()
+        
+        # Delete old read notifications (older than 30 days)
+        read_count = self.db.query(Notification).filter(
+            and_(
+                Notification.is_read == True,
+                Notification.created_at < cutoff_date
+            )
+        ).delete()
+        
+        self.db.commit()
+        total_deleted = archived_count + read_count
+        logger.info(f"Deleted {total_deleted} old notifications ({archived_count} archived, {read_count} read) older than {days} days")
+        
+        return total_deleted
+    
+    async def cleanup_notifications(self) -> Dict[str, int]:
+        """Run complete notification cleanup - expired and old notifications"""
+        
+        expired_count = await self.delete_expired_notifications()
+        old_count = await self.delete_old_notifications(30)
+        
+        return {
+            "expired_deleted": expired_count,
+            "old_deleted": old_count,
+            "total_deleted": expired_count + old_count
+        }
+    
     def _notification_to_dict(self, notification: Notification) -> Dict[str, Any]:
         """Convert notification to dictionary"""
         return {
