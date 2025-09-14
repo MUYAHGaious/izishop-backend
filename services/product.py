@@ -54,26 +54,80 @@ def get_products_by_seller(db: Session, seller_id: str, skip: int = 0, limit: in
     
     return query.offset(skip).limit(limit).all()
 
-def get_all_products(db: Session, skip: int = 0, limit: int = 100, active_only: bool = True, category: Optional[str] = None) -> List[Product]:
-    """Get all products (for product catalog) - Memory optimized version"""
+def get_all_products(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    active_only: bool = True,
+    category: Optional[str] = None,
+    categories: Optional[List[str]] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    min_rating: Optional[int] = None,
+) -> List[Product]:
+    """Get all products (for product catalog) with optional filters"""
     query = db.query(Product)
-    
+
     if active_only:
         query = query.filter(Product.is_active == True)
-    
+
     if category and category != 'all':
         query = query.filter(Product.category == category)
-    
+
+    if categories:
+        # Normalize and filter non-empty strings
+        cats = [c for c in categories if isinstance(c, str) and c]
+        if cats:
+            query = query.filter(Product.category.in_(cats))
+
+    if min_price is not None:
+        query = query.filter(Product.price >= min_price)
+    if max_price is not None:
+        query = query.filter(Product.price <= max_price)
+
+    if min_rating is not None:
+        avg_subq = (
+            db.query(
+                ProductReview.product_id.label('pid'),
+                func.avg(ProductReview.rating).label('avg_rating')
+            )
+            .filter(ProductReview.is_active == True)
+            .group_by(ProductReview.product_id)
+            .subquery()
+        )
+        query = query.join(avg_subq, Product.id == avg_subq.c.pid)
+        query = query.filter(avg_subq.c.avg_rating >= min_rating)
+
     return query.order_by(desc(Product.created_at)).offset(skip).limit(limit).all()
 
-def get_products_for_catalog(db: Session, skip: int = 0, limit: int = 100, active_only: bool = True, category: Optional[str] = None) -> dict:
+def get_products_for_catalog(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    active_only: bool = True,
+    category: Optional[str] = None,
+    categories: Optional[List[str]] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    min_rating: Optional[int] = None,
+) -> dict:
     """
     Memory-efficient product retrieval for catalog display
     Returns products with minimal data to prevent browser memory issues
     """
     try:
         # Get products without loading large image data
-        products = get_all_products(db, skip, limit, active_only, category)
+        products = get_all_products(
+            db,
+            skip,
+            limit,
+            active_only,
+            category,
+            categories,
+            min_price,
+            max_price,
+            min_rating,
+        )
         
         # Transform to lightweight format
         lite_products = []
@@ -136,6 +190,26 @@ def get_products_for_catalog(db: Session, skip: int = 0, limit: int = 100, activ
             count_query = count_query.filter(Product.is_active == True)
         if category and category != 'all':
             count_query = count_query.filter(Product.category == category)
+        if categories:
+            cats = [c for c in categories if isinstance(c, str) and c]
+            if cats:
+                count_query = count_query.filter(Product.category.in_(cats))
+        if min_price is not None:
+            count_query = count_query.filter(Product.price >= min_price)
+        if max_price is not None:
+            count_query = count_query.filter(Product.price <= max_price)
+        if min_rating is not None:
+            avg_subq = (
+                db.query(
+                    ProductReview.product_id.label('pid'),
+                    func.avg(ProductReview.rating).label('avg_rating')
+                )
+                .filter(ProductReview.is_active == True)
+                .group_by(ProductReview.product_id)
+                .subquery()
+            )
+            count_query = count_query.join(avg_subq, Product.id == avg_subq.c.pid)
+            count_query = count_query.filter(avg_subq.c.avg_rating >= min_rating)
         
         total_count = count_query.count()
         has_more = (skip + len(lite_products)) < total_count
@@ -158,8 +232,18 @@ def get_products_for_catalog(db: Session, skip: int = 0, limit: int = 100, activ
             'has_more': False
         }
 
-def search_products(db: Session, search_term: str, skip: int = 0, limit: int = 100, category: Optional[str] = None) -> List[Product]:
-    """Search products by name or description"""
+def search_products(
+    db: Session,
+    search_term: str,
+    skip: int = 0,
+    limit: int = 100,
+    category: Optional[str] = None,
+    categories: Optional[List[str]] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    min_rating: Optional[int] = None,
+) -> List[Product]:
+    """Search products by name or description with optional filters"""
     query = db.query(Product).filter(
         and_(
             Product.is_active == True,
@@ -169,10 +253,33 @@ def search_products(db: Session, search_term: str, skip: int = 0, limit: int = 1
             )
         )
     )
-    
+
     if category:
         query = query.filter(Product.category == category)
-    
+
+    if categories:
+        cats = [c for c in categories if isinstance(c, str) and c]
+        if cats:
+            query = query.filter(Product.category.in_(cats))
+
+    if min_price is not None:
+        query = query.filter(Product.price >= min_price)
+    if max_price is not None:
+        query = query.filter(Product.price <= max_price)
+
+    if min_rating is not None:
+        avg_subq = (
+            db.query(
+                ProductReview.product_id.label('pid'),
+                func.avg(ProductReview.rating).label('avg_rating')
+            )
+            .filter(ProductReview.is_active == True)
+            .group_by(ProductReview.product_id)
+            .subquery()
+        )
+        query = query.join(avg_subq, Product.id == avg_subq.c.pid)
+        query = query.filter(avg_subq.c.avg_rating >= min_rating)
+
     return query.order_by(desc(Product.created_at)).offset(skip).limit(limit).all()
 
 def update_product(db: Session, product_id: str, product_data: ProductUpdate, seller_id: str) -> Optional[Product]:

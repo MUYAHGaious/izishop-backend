@@ -131,17 +131,45 @@ def get_products(
     active_only: bool = Query(True),
     search: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
+    # New optional filters for server-side support
+    categories: Optional[List[str]] = Query(None),
+    min_price: Optional[float] = Query(None, ge=0),
+    max_price: Optional[float] = Query(None, ge=0),
+    min_rating: Optional[int] = Query(None, ge=1, le=5),
+    # Accepted but currently unused: brands, features
+    brands: Optional[List[str]] = Query(None),
+    features: Optional[List[str]] = Query(None),
     db: Session = Depends(get_db)
 ):
     """Get all products (memory-optimized public endpoint for product catalog)"""
     try:
         if search:
-            # For search, still use the old method but with smaller limit
-            products = search_products(db=db, search_term=search, skip=skip, limit=min(limit, 20), category=category)
+            # Search with filters
+            products = search_products(
+                db=db,
+                search_term=search,
+                skip=skip,
+                limit=min(limit, 20),
+                category=category,
+                categories=categories,
+                min_price=min_price,
+                max_price=max_price,
+                min_rating=min_rating,
+            )
             return [ProductResponse.from_orm(product) for product in products]
         else:
-            # Use memory-efficient catalog endpoint
-            result = get_products_for_catalog(db=db, skip=skip, limit=limit, active_only=active_only, category=category)
+            # Memory-efficient catalog with filters
+            result = get_products_for_catalog(
+                db=db,
+                skip=skip,
+                limit=limit,
+                active_only=active_only,
+                category=category,
+                categories=categories,
+                min_price=min_price,
+                max_price=max_price,
+                min_rating=min_rating,
+            )
             return result['products']  # Return the lite products directly
         
     except Exception as e:
