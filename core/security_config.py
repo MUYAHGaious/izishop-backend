@@ -138,7 +138,13 @@ class SecuritySettings(BaseSettings):
     def get_cors_origins(self) -> List[str]:
         """Get appropriate CORS origins based on environment"""
         if self.is_production():
-            return self.get_allowed_origins_list()
+            # Production origins - include both configured and default production URLs
+            configured_origins = self.get_allowed_origins_list()
+            default_production_origins = [
+                "https://izishop-frontend.onrender.com",
+                "https://izishop-backend.onrender.com"
+            ]
+            return configured_origins + default_production_origins
         else:
             # Development origins
             return [
