@@ -42,9 +42,7 @@ def get_cors_settings() -> dict:
                 "http://localhost:4028",
                 "http://127.0.0.1:4028",
                 "http://localhost:5173",  # Vite dev server
-                "http://127.0.0.1:5173",
-                "https://izishop-frontend.onrender.com",  # Production frontend
-                "https://izishop-backend.onrender.com"    # Production backend
+                "http://127.0.0.1:5173"
             ],
             "allow_credentials": True,
             "allow_methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],

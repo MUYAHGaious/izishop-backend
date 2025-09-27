@@ -66,8 +66,24 @@ class ShopResponse(BaseModel):
     background_image: Optional[str]
     is_active: bool
     is_verified: bool
+    average_rating: float
+    total_reviews: int
     created_at: datetime
     updated_at: datetime
+    
+    # About section fields
+    mission: Optional[str] = None
+    vision: Optional[str] = None
+    website: Optional[str] = None
+    business_hours: Optional[str] = None  # JSON string
+    policies: Optional[str] = None  # JSON string
+    team_members: Optional[str] = None  # JSON string
+    milestones: Optional[str] = None  # JSON string
+    certifications: Optional[str] = None  # JSON string
+    coordinates: Optional[str] = None  # JSON string
+    followers_count: int = 0
+    product_count: int = 0
+    total_sales: float = 0.0
     
     class Config:
         from_attributes = True

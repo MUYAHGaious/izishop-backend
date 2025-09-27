@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 from database.connection import create_tables, get_db
 # Import all models to ensure they're registered with SQLAlchemy
-from models import user, shop, product, order, subscription, analytics
+from models import user, shop, product, order, subscription, analytics, casual_listing, review
 from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug, tranzak_webhooks, casual_listings, transaction_fees, delivery_partner, subscription_management, analytics, batch_operations, wishlist
 # Upload router for image uploads - temporarily disabled
 # from routers import upload

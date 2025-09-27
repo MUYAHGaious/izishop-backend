@@ -1226,25 +1226,8 @@ def change_user_role(
                     cancellation_notification = Notification(
                         user_id=user.id,
                         type=NotificationType.SYSTEM,
-                        title="📋 Shop Owner Subscription Cancelled",
-                        message=f"""Your Shop Owner subscription has been cancelled due to role change.
-
-📋 SUBSCRIPTION STATUS:
-• Plan: Shop Owner (Cancelled)
-• Reason: Role changed to {request.new_role}
-• Cancelled: {datetime.utcnow().strftime('%B %d, %Y at %I:%M %p')}
-
-⚠️ IMPORTANT NOTES:
-• Your shop is no longer active
-• You can no longer list unlimited products
-• Existing orders will still be processed
-• You can reactivate anytime by upgrading back to Shop Owner
-
-💡 TIP: You can upgrade back to Shop Owner anytime from your Settings page to reactivate your shop!
-
-Need help? Contact our support team anytime!
-
-IziShopin Team 🚀""",
+                        title="Shop Owner Subscription Cancelled",
+                        message=f"Your Shop Owner subscription has been cancelled due to role change to {request.new_role}.",
                         related_id=str(user.subscription.id),
                         related_type="subscription_cancelled",
                         priority=NotificationPriority.MEDIUM,
@@ -1259,130 +1242,21 @@ IziShopin Team 🚀""",
                 except Exception as notif_error:
                     logger.warning(f"Failed to create subscription cancellation notification: {str(notif_error)}")
         
-        # Create detailed notification for role change
+        # Create simple notification for role change
         try:
             from models.notification import Notification, NotificationType, NotificationPriority
             
-            # Create role-specific notification messages
-            role_messages = {
-                'CUSTOMER': {
-                    'title': '🎯 Role Updated - Customer Account',
-                    'message': f"""Welcome to your Customer account, {user.first_name}!
-
-✅ ACCOUNT STATUS: Active Customer
-📅 Updated: {datetime.utcnow().strftime('%B %d, %Y at %I:%M %p')}
-
-🛍️ WHAT YOU CAN DO:
-• Browse and purchase products from any shop
-• Add items to your wishlist
-• Track your orders in real-time
-• Leave reviews and ratings
-• Manage your profile and preferences
-
-💡 TIP: As a customer, you can upgrade to other roles anytime from your Settings page.
-
-Need help? Contact our support team anytime!
-
-IziShopin Team 🚀""",
-                    'icon': 'User'
-                },
-                'DELIVERY_AGENT': {
-                    'title': '🚚 Role Updated - Delivery Agent',
-                    'message': f"""Congratulations, {user.first_name}! You're now a Delivery Agent.
-
-✅ ACCOUNT STATUS: Active Delivery Agent
-📅 Updated: {datetime.utcnow().strftime('%B %d, %Y at %I:%M %p')}
-
-🚚 WHAT YOU CAN DO:
-• View and accept delivery assignments
-• Track delivery routes and schedules
-• Update delivery status in real-time
-• Earn money by delivering orders
-• Access delivery agent dashboard
-
-📋 NEXT STEPS:
-1. Complete your delivery agent profile
-2. Upload required documents
-3. Start accepting delivery assignments
-
-💡 TIP: Check your dashboard regularly for new delivery opportunities!
-
-Need help? Contact our support team anytime!
-
-IziShopin Team 🚀""",
-                    'icon': 'Truck'
-                },
-                'CASUAL_SELLER': {
-                    'title': '🏪 Role Updated - Casual Seller',
-                    'message': f"""Welcome to selling, {user.first_name}! You're now a Casual Seller.
-
-✅ ACCOUNT STATUS: Active Casual Seller
-📅 Updated: {datetime.utcnow().strftime('%B %d, %Y at %I:%M %p')}
-
-🏪 WHAT YOU CAN DO:
-• List products for sale (up to 10 items)
-• Manage your product listings
-• Process customer orders
-• Track your sales and earnings
-• Communicate with customers
-
-📋 NEXT STEPS:
-1. Add your first product listing
-2. Set up your seller profile
-3. Start selling to customers
-
-💡 TIP: As a casual seller, you can upgrade to Shop Owner anytime for unlimited listings!
-
-Need help? Contact our support team anytime!
-
-IziShopin Team 🚀""",
-                    'icon': 'Store'
-                },
-                'SHOP_OWNER': {
-                    'title': '🏬 Role Updated - Shop Owner',
-                    'message': f"""Congratulations, {user.first_name}! You're now a Shop Owner.
-
-✅ ACCOUNT STATUS: Active Shop Owner
-📅 Updated: {datetime.utcnow().strftime('%B %d, %Y at %I:%M %p')}
-
-🏬 WHAT YOU CAN DO:
-• Create and manage your shop
-• List unlimited products
-• Access advanced analytics
-• Manage orders and customers
-• Use marketing tools
-• Set up payment methods
-
-📋 NEXT STEPS:
-1. Create your shop profile
-2. Add your first products
-3. Set up shop policies
-4. Start selling to customers
-
-💡 TIP: Use your shop dashboard to track performance and grow your business!
-
-Need help? Contact our support team anytime!
-
-IziShopin Team 🚀""",
-                    'icon': 'Building2'
-                }
-            }
-            
-            # Get role-specific message
-            role_info = role_messages.get(request.new_role, role_messages['CUSTOMER'])
-            
-            # Create notification
             notification = Notification(
                 user_id=user.id,
                 type=NotificationType.SYSTEM,
-                title=role_info['title'],
-                message=role_info['message'],
+                title=f"Role Updated - {request.new_role}",
+                message=f"Your role has been changed to {request.new_role} successfully.",
                 related_id=str(user.id),
                 related_type="role_change",
                 priority=NotificationPriority.HIGH,
                 action_url="/settings",
                 action_label="View Settings",
-                icon=role_info['icon']
+                icon="User"
             )
             
             db.add(notification)

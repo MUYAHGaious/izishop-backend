@@ -8,7 +8,7 @@ from models.payment import Payment
 from models.delivery import Delivery
 from models.delivery_tracking import DeliveryTracking
 from models.subscription import Subscription
-from models.casual_listing import CasualListing
+from models.casual_listing import CasualListing, CasualListingInquiry, CasualListingFavorite
 from models.delivery_agent import DeliveryAgent, DeliveryAssignment
 from models.transaction_fee import TransactionFee, UserMetrics
 from models.notification import Notification, NotificationPreference

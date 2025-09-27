@@ -25,8 +25,8 @@ class PaymentRequest(BaseModel):
 
 # Configure Tranzak
 TRANZAK_BASE_URL = os.getenv('TRANZAK_BASE_URL', 'https://sandbox.dsapi.tranzak.me')  # Default to sandbox
-TRANZAK_APP_ID = os.getenv('TRANZAK_API_KEY', 'apabc123abc133')  # Use TRANZAK_API_KEY for app ID
-TRANZAK_APP_KEY = os.getenv('TRANZAK_API_SECRET', 'SAND_B24993ACBD5C45E9A7660325513F47D8')  # Use TRANZAK_API_SECRET for app key
+TRANZAK_APP_ID = os.getenv('TRANZAK_API_KEY', 'ap6kbj7jhunqq4')  # Use TRANZAK_API_KEY for app ID
+TRANZAK_APP_KEY = os.getenv('TRANZAK_API_SECRET', 'SAND_6BD375A02D9447318E5798F8C8AF1914')  # Use TRANZAK_API_SECRET for app key
 TRANZAK_WEBHOOK_SECRET = os.getenv('TRANZAK_WEBHOOK_SECRET', 'dev_webhook_secret')
 
 router = APIRouter(prefix="/api/tranzak", tags=["tranzak"])

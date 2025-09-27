@@ -22,10 +22,25 @@ class Shop(Base):
     total_reviews = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # About section fields
+    mission = Column(Text, nullable=True)
+    vision = Column(Text, nullable=True)
+    website = Column(String, nullable=True)
+    business_hours = Column(Text, nullable=True)  # JSON string for business hours
+    policies = Column(Text, nullable=True)  # JSON string for policies
+    team_members = Column(Text, nullable=True)  # JSON string for team members
+    milestones = Column(Text, nullable=True)  # JSON string for milestones
+    certifications = Column(Text, nullable=True)  # JSON string for certifications
+    coordinates = Column(Text, nullable=True)  # JSON string for lat/lng
+    followers_count = Column(Integer, default=0)
+    product_count = Column(Integer, default=0)
+    total_sales = Column(Float, default=0.0)
 
     # Relationships
     owner = relationship("User", back_populates="shop")
     analytics_metrics = relationship("AnalyticsMetric", back_populates="shop")
+    reviews = relationship("Review", back_populates="shop", cascade="all, delete-orphan")
     # ratings = relationship("Rating", back_populates="shop")
     # stats = relationship("ShopStats", uselist=False, back_populates="shop")
     # orders = relationship("Order", back_populates="shop") 

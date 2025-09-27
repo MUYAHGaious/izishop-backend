@@ -37,6 +37,7 @@ class User(Base):
     delivery_agent = relationship("DeliveryAgent", uselist=False, back_populates="user")
     transaction_fees = relationship("TransactionFee", back_populates="user")
     metrics = relationship("UserMetrics", uselist=False, back_populates="user")
+    reviews = relationship("Review", back_populates="user", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
     notification_preferences = relationship("NotificationPreference", uselist=False, back_populates="user", cascade="all, delete-orphan")
     wishlist_items = relationship("Wishlist", back_populates="user", cascade="all, delete-orphan")

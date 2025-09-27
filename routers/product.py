@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import logging
+import base64
+import json
 
 from database.connection import get_db
 from core.response import success_response, empty_data_response, error_response
@@ -142,9 +145,12 @@ def get_products(
     db: Session = Depends(get_db)
 ):
     """Get all products (memory-optimized public endpoint for product catalog)"""
+    logger.info(f"🌐 GET /products endpoint called with params: skip={skip}, limit={limit}, active_only={active_only}, search={search}, category={category}")
+
     try:
         if search:
             # Search with filters
+            logger.info(f"🔍 Using search functionality with term: {search}")
             products = search_products(
                 db=db,
                 search_term=search,
@@ -156,9 +162,12 @@ def get_products(
                 max_price=max_price,
                 min_rating=min_rating,
             )
-            return [ProductResponse.from_orm(product) for product in products]
+            response_data = [ProductResponse.from_orm(product) for product in products]
+            logger.info(f"📤 Search response: {len(response_data)} products returned")
+            return response_data
         else:
             # Memory-efficient catalog with filters
+            logger.info(f"📋 Using catalog functionality")
             result = get_products_for_catalog(
                 db=db,
                 skip=skip,
@@ -170,10 +179,22 @@ def get_products(
                 max_price=max_price,
                 min_rating=min_rating,
             )
-            return result['products']  # Return the lite products directly
-        
+
+            response_data = result['products']
+            logger.info(f"📤 Catalog response: {len(response_data)} products returned from get_products_for_catalog")
+            logger.info(f"📦 Response metadata: total_count={result.get('total_count')}, page={result.get('page')}, has_more={result.get('has_more')}")
+
+            # Log first product in response for debugging
+            if response_data:
+                first_product = response_data[0]
+                logger.info(f"📝 First product in response: id={first_product.get('id', 'N/A')}, name={first_product.get('name', 'N/A')}, image_url={first_product.get('image_url', 'N/A')}")
+            else:
+                logger.warning(f"⚠️ Empty response data returned to client")
+
+            return response_data  # Return the lite products directly
+
     except Exception as e:
-        logger.error(f"Error getting products: {str(e)}")
+        logger.error(f"❌ Error getting products: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve products"
@@ -504,4 +525,76 @@ def get_related_products_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve related products"
+        )
+
+@router.get("/{product_id}/image/{image_index}")
+async def get_product_image(
+    product_id: str,
+    image_index: int,
+    db: Session = Depends(get_db)
+):
+    """Get a specific product image by index"""
+    try:
+        product = get_product_by_id(db, product_id)
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Product not found"
+            )
+        
+        if not product.image_urls:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No images found for this product"
+            )
+        
+        # Parse image URLs
+        try:
+            if isinstance(product.image_urls, str):
+                urls = json.loads(product.image_urls)
+            else:
+                urls = product.image_urls
+        except:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid image data format"
+            )
+        
+        if image_index >= len(urls):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Image index out of range"
+            )
+        
+        image_url = urls[image_index]
+        
+        # Handle base64 images
+        if image_url.startswith('data:'):
+            # Extract base64 data
+            header, data = image_url.split(',', 1)
+            # Extract content type
+            content_type = header.split(':')[1].split(';')[0]
+            
+            # Decode base64
+            image_data = base64.b64decode(data)
+            
+            return Response(
+                content=image_data,
+                media_type=content_type,
+                headers={"Cache-Control": "public, max-age=3600"}
+            )
+        else:
+            # For regular URLs, redirect to the URL
+            raise HTTPException(
+                status_code=status.HTTP_302_FOUND,
+                detail=f"Redirect to {image_url}"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting product image: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve product image"
         )

@@ -15,6 +15,8 @@ from services.shop import (
     get_featured_shops,
     get_shop_products,
     get_shop_reviews,
+    get_shop_about_data,
+    update_shop_statistics,
     update_shop,
     delete_shop,
     verify_shop
@@ -666,4 +668,72 @@ def get_shop_followers_count(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to get followers count"
+        )
+
+@router.get("/{shop_id}/about")
+def get_shop_about_endpoint(
+    shop_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get comprehensive about data for a shop
+    """
+    try:
+        # Verify shop exists
+        shop = get_shop_by_id(db=db, shop_id=shop_id)
+        if not shop:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Shop not found"
+            )
+        
+        # Get about data
+        about_data = get_shop_about_data(db=db, shop_id=shop_id)
+        
+        return success_response(
+            data=about_data,
+            message="Shop about data retrieved successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting about data for shop {shop_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve shop about data"
+        )
+
+@router.post("/{shop_id}/update-statistics")
+def update_shop_statistics_endpoint(
+    shop_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Update shop statistics based on current data
+    """
+    try:
+        # Verify shop exists
+        shop = get_shop_by_id(db=db, shop_id=shop_id)
+        if not shop:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Shop not found"
+            )
+        
+        # Update statistics
+        update_shop_statistics(db=db, shop_id=shop_id)
+        
+        return success_response(
+            data={"shop_id": shop_id},
+            message="Shop statistics updated successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating statistics for shop {shop_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update shop statistics"
         )

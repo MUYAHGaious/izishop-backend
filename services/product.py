@@ -77,6 +77,8 @@ def get_all_products(
     min_rating: Optional[int] = None,
 ) -> List[Product]:
     """Get all products (for product catalog) with optional filters"""
+    logger.info(f"🔍 get_all_products called with filters: skip={skip}, limit={limit}, active_only={active_only}, category={category}, categories={categories}, min_price={min_price}, max_price={max_price}, min_rating={min_rating}")
+
     query = db.query(Product)
 
     if active_only:
@@ -85,7 +87,7 @@ def get_all_products(
     if category and category != 'all':
         query = query.filter(Product.category == category)
 
-    if categories:
+    if categories and categories is not None:
         # Normalize and filter non-empty strings
         cats = [c for c in categories if isinstance(c, str) and c]
         if cats:
@@ -109,7 +111,36 @@ def get_all_products(
         query = query.join(avg_subq, Product.id == avg_subq.c.pid)
         query = query.filter(avg_subq.c.avg_rating >= min_rating)
 
-    return query.order_by(desc(Product.created_at)).offset(skip).limit(limit).all()
+    # Execute query and log results
+    products = query.order_by(desc(Product.created_at)).offset(skip).limit(limit).all()
+
+    # Enhanced logging for debugging
+    logger.info(f"📊 Database query executed successfully. Found {len(products)} products")
+
+    if products:
+        sample_product = products[0]
+        logger.info(f"📝 Sample product data: id={sample_product.id}, name={sample_product.name}, seller_id={sample_product.seller_id}, is_active={sample_product.is_active}, image_urls_type={type(sample_product.image_urls)}, image_urls_length={len(sample_product.image_urls) if sample_product.image_urls else 0}")
+
+        # Log image URL details for debugging
+        if sample_product.image_urls:
+            try:
+                import json
+                if isinstance(sample_product.image_urls, str):
+                    parsed_urls = json.loads(sample_product.image_urls)
+                    logger.info(f"🖼️ Sample product image URLs (parsed from JSON): {parsed_urls[:2] if len(parsed_urls) > 2 else parsed_urls}")
+                else:
+                    logger.info(f"🖼️ Sample product image URLs (direct): {sample_product.image_urls[:2] if len(sample_product.image_urls) > 2 else sample_product.image_urls}")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not parse image URLs for sample product: {e}")
+    else:
+        logger.warning(f"⚠️ No products found with the given filters")
+
+        # Additional debugging: Check total products in database
+        total_products_in_db = db.query(Product).count()
+        active_products_in_db = db.query(Product).filter(Product.is_active == True).count()
+        logger.info(f"📈 Database totals: {total_products_in_db} total products, {active_products_in_db} active products")
+
+    return products
 
 def get_products_for_catalog(
     db: Session,
@@ -126,6 +157,8 @@ def get_products_for_catalog(
     Memory-efficient product retrieval for catalog display
     Returns products with minimal data to prevent browser memory issues
     """
+    logger.info(f"🛒 get_products_for_catalog called with params: skip={skip}, limit={limit}, active_only={active_only}, category={category}, categories={categories}")
+
     try:
         # Get products without loading large image data
         products = get_all_products(
@@ -139,61 +172,152 @@ def get_products_for_catalog(
             max_price,
             min_rating,
         )
+
+        logger.info(f"📦 Retrieved {len(products)} raw products from get_all_products()")
         
         # Transform to lightweight format
         lite_products = []
-        for product in products:
-            # Extract only the first image URL to save memory
-            image_url = None
-            image_count = 0
-            has_video = False
-            
-            if product.image_urls:
-                try:
-                    import json
-                    if isinstance(product.image_urls, str):
-                        urls = json.loads(product.image_urls)
-                    else:
-                        urls = product.image_urls
-                    
-                    if urls and len(urls) > 0:
-                        # Use placeholder for base64 images to save memory
-                        first_url = urls[0]
-                        if first_url.startswith('data:'):
-                            image_url = '/api/placeholder/300/300'  # Use placeholder for base64
+        transformation_errors = []
+
+        for i, product in enumerate(products):
+            try:
+                logger.info(f"🔄 Processing product {i+1}/{len(products)}: id={product.id}, name={product.name}")
+
+                # Extract only the first image URL to save memory
+                image_url = None
+                image_count = 0
+                has_video = False
+
+                if product.image_urls:
+                    try:
+                        import json
+                        logger.info(f"🖼️ Raw image_urls for product {product.id}: type={type(product.image_urls)}, value={str(product.image_urls)[:200]}...")
+
+                        if isinstance(product.image_urls, str):
+                            urls = json.loads(product.image_urls)
+                            logger.info(f"📜 Parsed URLs from JSON string: {urls}")
                         else:
-                            image_url = first_url
-                        image_count = len(urls)
-                except:
+                            urls = product.image_urls
+                            logger.info(f"📜 Direct URLs (not JSON): {urls}")
+
+                        if urls and len(urls) > 0:
+                            # Handle base64 images by creating a proper endpoint URL
+                            first_url = urls[0]
+                            logger.info(f"🎯 First URL: {first_url[:100]}...")
+
+                            if first_url.startswith('data:'):
+                                # Create a proper image endpoint URL for base64 images
+                                image_url = f'/api/products/{product.id}/image/0'
+                                logger.info(f"🔗 Created endpoint URL for base64: {image_url}")
+                            else:
+                                image_url = first_url
+                                logger.info(f"🔗 Using direct URL: {image_url}")
+                            image_count = len(urls)
+                        else:
+                            logger.warning(f"⚠️ Empty or null URLs array for product {product.id}")
+                            image_url = '/api/placeholder/300/300'
+                            image_count = 0
+
+                    except json.JSONDecodeError as e:
+                        logger.error(f"❌ JSON decode error for product {product.id} image_urls: {e}")
+                        image_url = '/api/placeholder/300/300'
+                        image_count = 0
+                        transformation_errors.append(f"JSON decode error for product {product.id}: {e}")
+                    except Exception as e:
+                        logger.error(f"❌ Unexpected error processing image URLs for product {product.id}: {e}", exc_info=True)
+                        image_url = '/api/placeholder/300/300'
+                        image_count = 0
+                        transformation_errors.append(f"Image processing error for product {product.id}: {e}")
+                else:
+                    logger.info(f"ℹ️ No image_urls for product {product.id}")
                     image_url = '/api/placeholder/300/300'
                     image_count = 0
+
+                # Process video URLs
+                if product.video_urls:
+                    try:
+                        if isinstance(product.video_urls, str):
+                            video_urls = json.loads(product.video_urls)
+                        else:
+                            video_urls = product.video_urls
+                        has_video = bool(video_urls and len(video_urls) > 0)
+                    except:
+                        has_video = False
             
-            if product.video_urls:
+                # Get shop information for this product
+                shop_info = {}
+                if product.seller_id:
+                    try:
+                        from models.shop import Shop
+                        logger.info(f"🏪 Fetching shop info for seller_id: {product.seller_id}")
+
+                        # Only select the basic columns that exist in the database
+                        shop = db.query(
+                            Shop.id,
+                            Shop.name,
+                            Shop.is_verified,
+                            Shop.average_rating,
+                            Shop.total_reviews,
+                            Shop.address
+                        ).filter(Shop.owner_id == product.seller_id).first()
+
+                        if shop:
+                            shop_info = {
+                                'shop_id': shop.id,
+                                'shop_name': shop.name,
+                                'shop_verified': shop.is_verified,
+                                'shop_rating': shop.average_rating,
+                                'shop_reviews': shop.total_reviews,
+                                'shop_location': shop.address or 'Cameroon'
+                            }
+                            logger.info(f"🏪 Shop info found: {shop_info}")
+                        else:
+                            logger.warning(f"⚠️ No shop found for seller_id: {product.seller_id}")
+
+                    except Exception as e:
+                        logger.error(f"❌ Failed to get shop info for product {product.id}, seller_id {product.seller_id}: {e}", exc_info=True)
+                        transformation_errors.append(f"Shop info error for product {product.id}: {e}")
+                else:
+                    logger.warning(f"⚠️ No seller_id for product {product.id}")
+            
+                # Create lite product with comprehensive error handling
                 try:
-                    if isinstance(product.video_urls, str):
-                        video_urls = json.loads(product.video_urls)
-                    else:
-                        video_urls = product.video_urls
-                    has_video = bool(video_urls and len(video_urls) > 0)
-                except:
-                    has_video = False
-            
-            lite_product = {
-                'id': product.id,
-                'seller_id': product.seller_id,
-                'name': product.name,
-                'description': product.description,
-                'price': product.price,
-                'stock_quantity': product.stock_quantity,
-                'category': product.category,
-                'is_active': product.is_active,
-                'image_url': image_url,
-                'image_count': image_count,
-                'has_video': has_video,
-                'created_at': product.created_at,
-                'updated_at': product.updated_at
-            }
-            lite_products.append(lite_product)
+                    lite_product = {
+                        'id': product.id,
+                        'seller_id': product.seller_id,
+                        'name': product.name,
+                        'description': product.description,
+                        'price': float(product.price) if product.price else 0.0,
+                        'stock_quantity': product.stock_quantity or 0,
+                        'category': product.category,
+                        'is_active': product.is_active,
+                        'image_url': image_url,
+                        'image_count': image_count,
+                        'has_video': has_video,
+                        'created_at': product.created_at,
+                        'updated_at': product.updated_at,
+                        # Include shop information
+                        **shop_info
+                    }
+
+                    # Validate the created lite product
+                    required_fields = ['id', 'name', 'price']
+                    for field in required_fields:
+                        if lite_product.get(field) is None:
+                            logger.warning(f"⚠️ Missing required field '{field}' for product {product.id}")
+
+                    lite_products.append(lite_product)
+                    logger.info(f"✅ Successfully transformed product {product.id} to lite format")
+
+                except Exception as e:
+                    logger.error(f"❌ Failed to create lite product for {product.id}: {e}", exc_info=True)
+                    transformation_errors.append(f"Lite product creation error for {product.id}: {e}")
+                    # Continue processing other products even if one fails
+
+            except Exception as e:
+                logger.error(f"❌ Unexpected error processing product at index {i}: {e}", exc_info=True)
+                transformation_errors.append(f"Product processing error at index {i}: {e}")
+                # Continue processing other products
         
         # Get total count for pagination
         count_query = db.query(Product)
@@ -201,7 +325,7 @@ def get_products_for_catalog(
             count_query = count_query.filter(Product.is_active == True)
         if category and category != 'all':
             count_query = count_query.filter(Product.category == category)
-        if categories:
+        if categories and categories is not None:
             cats = [c for c in categories if isinstance(c, str) and c]
             if cats:
                 count_query = count_query.filter(Product.category.in_(cats))
@@ -224,23 +348,56 @@ def get_products_for_catalog(
         
         total_count = count_query.count()
         has_more = (skip + len(lite_products)) < total_count
-        
-        return {
+
+        # Report any transformation errors that occurred
+        if transformation_errors:
+            logger.warning(f"⚠️ {len(transformation_errors)} transformation errors occurred:")
+            for error in transformation_errors:
+                logger.warning(f"  • {error}")
+
+        # Final response logging
+        logger.info(f"✅ get_products_for_catalog completed successfully:")
+        logger.info(f"  📊 Processed {len(products)} raw products into {len(lite_products)} lite products")
+        logger.info(f"  📈 Total count: {total_count}, Page: {(skip // limit) + 1}, Has more: {has_more}")
+
+        # Log sample lite product for debugging
+        if lite_products:
+            sample_lite = lite_products[0]
+            logger.info(f"  📝 Sample lite product: id={sample_lite.get('id', 'N/A')}, name={sample_lite.get('name', 'N/A')}, image_url={sample_lite.get('image_url', 'N/A')}, shop_name={sample_lite.get('shop_name', 'N/A')}")
+        else:
+            logger.error(f"❌ No lite products were created! This indicates a serious issue.")
+
+        response = {
             'products': lite_products,
             'total_count': total_count,
             'page': (skip // limit) + 1,
             'per_page': limit,
             'has_more': has_more
         }
+
+        # Add error information to response if there were issues
+        if transformation_errors:
+            response['_debug_errors'] = transformation_errors
+
+        return response
         
     except Exception as e:
-        logger.error(f"Error getting products for catalog: {str(e)}")
+        logger.error(f"❌ Critical error in get_products_for_catalog: {str(e)}", exc_info=True)
+
+        # Try to get basic database information for debugging
+        try:
+            total_products_in_db = db.query(Product).count()
+            logger.info(f"📊 Database debug info: {total_products_in_db} total products in database")
+        except Exception as db_error:
+            logger.error(f"❌ Cannot even access database: {db_error}")
+
         return {
             'products': [],
             'total_count': 0,
             'page': 1,
             'per_page': limit,
-            'has_more': False
+            'has_more': False,
+            '_error': str(e)
         }
 
 def search_products(
@@ -268,7 +425,7 @@ def search_products(
     if category:
         query = query.filter(Product.category == category)
 
-    if categories:
+    if categories and categories is not None:
         cats = [c for c in categories if isinstance(c, str) and c]
         if cats:
             query = query.filter(Product.category.in_(cats))

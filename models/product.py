@@ -56,6 +56,7 @@ class Product(Base):
     # seller = relationship("User", back_populates="products_as_seller")
     # order_items = relationship("OrderItem", back_populates="product")
     wishlist_items = relationship("Wishlist", back_populates="product", cascade="all, delete-orphan")
+    reviews = relationship("Review", back_populates="product", cascade="all, delete-orphan")
 
 
 class ProductReview(Base):
