@@ -10,10 +10,11 @@ from typing import List as TypingList
 from database.connection import get_db
 from routers.auth import get_current_user
 from schemas.user import UserResponse
-from models.order import Order, OrderStatus, OrderItem, PaymentStatus
+from models.order import Order, OrderStatus, OrderItem, PaymentStatus, OrderStatusHistory
 from models.shop import Shop
 from models.user import User
 from models.product import Product
+import uuid
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -51,6 +52,23 @@ class OrderResponse(BaseModel):
 class OrderUpdateRequest(BaseModel):
     status: Optional[str] = None
     tracking_number: Optional[str] = None
+
+class OrderStatusUpdateRequest(BaseModel):
+    new_status: str
+    notes: Optional[str] = None
+    carrier: Optional[str] = None
+    estimated_delivery_date: Optional[str] = None
+
+class OrderStatusHistoryResponse(BaseModel):
+    id: str
+    old_status: Optional[str] = None
+    new_status: str
+    changed_by: Optional[str] = None
+    changed_at: str
+    notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 class CreateOrderItemRequest(BaseModel):
     product_id: str
@@ -376,13 +394,33 @@ def update_order_status(
         if update_request.status:
             try:
                 new_status = OrderStatus(update_request.status)
+                old_status = order.status.value
+
+                # Create status history record
+                history_record = OrderStatusHistory(
+                    id=str(uuid.uuid4()),
+                    order_id=order.id,
+                    old_status=old_status,
+                    new_status=new_status.value,
+                    changed_by=current_user.id,
+                    changed_at=datetime.utcnow(),
+                    notes=f"Status updated by shop owner"
+                )
+                db.add(history_record)
+
+                # Update order
                 order.status = new_status
+                order.status_updated_at = datetime.utcnow()
                 order.updated_at = datetime.utcnow()
-                
+
                 # Create notification for customer
-                from services.notification import create_order_notification
-                create_order_notification(db, order.customer_id, order_id, update_request.status)
-                
+                try:
+                    from services.notification import create_order_notification
+                    create_order_notification(db, order.customer_id, order_id, update_request.status)
+                except ImportError:
+                    # Notification service not available, continue without it
+                    logger.warning("Notification service not available")
+
             except ValueError:
                 raise HTTPException(
                     status_code=http_status.HTTP_400_BAD_REQUEST,
@@ -472,4 +510,147 @@ def get_order_details(
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve order details"
+        )
+
+@router.put("/{order_id}/status", status_code=http_status.HTTP_200_OK)
+def update_order_status_enhanced(
+    order_id: str,
+    status_update: OrderStatusUpdateRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Enhanced order status update with full tracking and history."""
+    try:
+        # Get the shop for current user
+        shop = db.query(Shop).filter(Shop.owner_id == current_user.id).first()
+        if not shop:
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have a shop"
+            )
+
+        # Get the order
+        order = db.query(Order).filter(
+            Order.id == order_id,
+            Order.shop_id == shop.id
+        ).first()
+
+        if not order:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="Order not found"
+            )
+
+        # Validate new status
+        try:
+            new_status = OrderStatus(status_update.new_status)
+        except ValueError:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid order status: {status_update.new_status}"
+            )
+
+        # Store old status for history
+        old_status = order.status.value
+
+        # Create status history record
+        history_record = OrderStatusHistory(
+            id=str(uuid.uuid4()),
+            order_id=order.id,
+            old_status=old_status,
+            new_status=new_status.value,
+            changed_by=current_user.id,
+            changed_at=datetime.utcnow(),
+            notes=status_update.notes or f"Status updated from {old_status} to {new_status.value}"
+        )
+        db.add(history_record)
+
+        # Update order
+        order.status = new_status
+        order.status_updated_at = datetime.utcnow()
+        order.updated_at = datetime.utcnow()
+
+        # Update additional fields if provided
+        if status_update.carrier:
+            order.carrier = status_update.carrier
+
+        if status_update.estimated_delivery_date:
+            try:
+                from datetime import datetime as dt
+                order.estimated_delivery_date = dt.fromisoformat(status_update.estimated_delivery_date)
+            except ValueError:
+                # If date parsing fails, just log it and continue
+                logger.warning(f"Invalid delivery date format: {status_update.estimated_delivery_date}")
+
+        db.commit()
+        db.refresh(order)
+
+        return {
+            "message": "Order status updated successfully",
+            "order_id": order.id,
+            "old_status": old_status,
+            "new_status": new_status.value,
+            "status_updated_at": order.status_updated_at.isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating order status: {str(e)}")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update order status"
+        )
+
+@router.get("/{order_id}/history", response_model=List[OrderStatusHistoryResponse])
+def get_order_status_history(
+    order_id: str,
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get the complete status history for an order."""
+    try:
+        # Get the order and check permissions
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="Order not found"
+            )
+
+        # Check if user is either the customer or the shop owner
+        shop = db.query(Shop).filter(Shop.id == order.shop_id).first()
+        if order.customer_id != current_user.id and (not shop or shop.owner_id != current_user.id):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to view this order's history"
+            )
+
+        # Get status history
+        history = db.query(OrderStatusHistory).filter(
+            OrderStatusHistory.order_id == order_id
+        ).order_by(OrderStatusHistory.changed_at.asc()).all()
+
+        # Transform to response format
+        result = []
+        for record in history:
+            result.append(OrderStatusHistoryResponse(
+                id=record.id,
+                old_status=record.old_status,
+                new_status=record.new_status,
+                changed_by=record.changed_by,
+                changed_at=record.changed_at.isoformat(),
+                notes=record.notes
+            ))
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting order status history: {str(e)}")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve order status history"
         )
