@@ -22,11 +22,10 @@ logger = logging.getLogger(__name__)
 # MILLISECOND-FAST REGISTRATION: Like tech giants (Google, Facebook, Twitter)
 # Production-optimized for instant registration response times
 pwd_context = CryptContext(
-    schemes=["pbkdf2_sha256"],  
+    schemes=["pbkdf2_sha256"],
     deprecated="auto",
     pbkdf2_sha256__default_rounds=1000  # ULTRA-FAST: ~1-5ms like industry leaders
 )
-logger.info("Using ULTRA-FAST hashing: ~1-5ms registration time like tech giants")
 
 # JWT settings
 SECRET_KEY = settings.SECRET_KEY
@@ -59,16 +58,16 @@ def get_password_hash(password: str) -> str:
         return hashlib.sha256(password.encode()).hexdigest()
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a JWT access token with timeout protection."""
+    """Create a JWT access token."""
     try:
         to_encode = data.copy()
-        
+
         # Set expiration time
         if expires_delta:
             expire = datetime.now(timezone.utc) + expires_delta
         else:
             expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        
+
         # Add standard claims
         to_encode.update({
             "exp": expire,
@@ -76,19 +75,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
             "iss": "izishop",
             "type": "access"
         })
-        
-        # RESEARCH-BASED FIX: Add timeout to JWT encoding
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(jwt.encode, to_encode, SECRET_KEY, algorithm=ALGORITHM)
-            try:
-                encoded_jwt = future.result(timeout=5.0)  # 5 second timeout
-                logger.info(f"Access token created for user: {data.get('sub')}")
-                return encoded_jwt
-            except concurrent.futures.TimeoutError:
-                logger.error("JWT encoding timed out")
-                raise Exception("Token creation timed out")
-        
+
+        # Encode JWT directly without threading overhead
+        encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        return encoded_jwt
+
     except Exception as e:
         logger.error(f"Error creating access token: {str(e)}")
         raise
@@ -97,13 +88,13 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     """Create a JWT refresh token with longer expiration."""
     try:
         to_encode = data.copy()
-        
+
         # Set expiration time
         if expires_delta:
             expire = datetime.now(timezone.utc) + expires_delta
         else:
             expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-        
+
         # Add standard claims
         to_encode.update({
             "exp": expire,
@@ -111,51 +102,36 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
             "iss": "izishop",
             "type": "refresh"
         })
-        
-        # Add timeout to JWT encoding
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(jwt.encode, to_encode, SECRET_KEY, algorithm=ALGORITHM)
-            try:
-                encoded_jwt = future.result(timeout=5.0)  # 5 second timeout
-                logger.info(f"Refresh token created for user: {data.get('sub')}")
-                return encoded_jwt
-            except concurrent.futures.TimeoutError:
-                logger.error("JWT refresh token encoding timed out")
-                raise Exception("Refresh token creation timed out")
-        
+
+        # Encode JWT directly without threading overhead
+        encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        return encoded_jwt
+
     except Exception as e:
         logger.error(f"Error creating refresh token: {str(e)}")
         raise
 
 def verify_token(token: str) -> Optional[TokenData]:
-    """Verify and decode a JWT token with timeout protection."""
+    """Verify and decode a JWT token."""
     try:
-        # RESEARCH-BASED FIX: Add timeout to JWT decoding
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(jwt.decode, token, SECRET_KEY, algorithms=[ALGORITHM])
-            try:
-                payload = future.result(timeout=5.0)  # 5 second timeout
-            except concurrent.futures.TimeoutError:
-                logger.error("JWT decoding timed out")
-                return None
-        
+        # Decode JWT directly without threading overhead
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
         email: str = payload.get("sub")
         user_id: str = payload.get("user_id")
-        
+
         if email is None or user_id is None:
             logger.warning("Token missing required claims")
             return None
-            
+
         # Check if token is expired
         exp = payload.get("exp")
         if exp is None or datetime.now(timezone.utc).timestamp() > exp:
             logger.warning("Token is expired")
             return None
-            
+
         return TokenData(email=email, user_id=user_id)
-        
+
     except JWTError as e:
         logger.warning(f"JWT verification failed: {str(e)}")
         return None

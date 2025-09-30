@@ -11,7 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from core.config import settings
-from models import user, wallet, shop, category, product, order, payment, delivery, rating
+from models import user, wallet, shop, category, product, order, payment, delivery, rating, order_cancellation
 from database.base import Base
 
 # this is the Alembic Config object, which provides

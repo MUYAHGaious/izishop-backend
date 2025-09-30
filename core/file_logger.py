@@ -92,10 +92,28 @@ class IzishopFileLogger:
                 console_handler.setLevel(logging.ERROR)
                 handler_config["logger"].addHandler(console_handler)
     
-    def log_api_request(self, method: str, url: str, headers: Dict[str, Any] = None, 
-                       body: Any = None, status_code: int = None, 
+    def log_api_request(self, method: str, url: str, headers: Dict[str, Any] = None,
+                       body: Any = None, status_code: int = None,
                        response_time: float = None, client_ip: str = None):
         """Log API request details"""
+
+        # Mask sensitive headers to prevent JWT tokens and secrets from being logged
+        sanitized_headers = None
+        if headers:
+            sanitized_headers = {}
+            sensitive_headers = ['authorization', 'cookie', 'x-api-key', 'x-auth-token', 'authentication']
+
+            for key, value in headers.items():
+                key_lower = key.lower()
+                if any(sensitive in key_lower for sensitive in sensitive_headers):
+                    # Mask sensitive headers - only show first/last few characters
+                    if len(str(value)) > 10:
+                        sanitized_headers[key] = f"{str(value)[:8]}...{str(value)[-4:]}"
+                    else:
+                        sanitized_headers[key] = "[MASKED]"
+                else:
+                    sanitized_headers[key] = value
+
         log_data = {
             "timestamp": datetime.now().isoformat(),
             "method": method,
@@ -103,10 +121,10 @@ class IzishopFileLogger:
             "client_ip": client_ip,
             "status_code": status_code,
             "response_time_ms": round(response_time * 1000, 2) if response_time else None,
-            "headers": dict(headers) if headers else None,
+            "headers": sanitized_headers,
             "body_size": len(str(body)) if body else 0
         }
-        
+
         # Log as JSON for easy parsing
         self.api_logger.info(json.dumps(log_data, separators=(',', ':')))
     
@@ -164,4 +182,4 @@ class IzishopFileLogger:
         print(f"Session ID: {self.session_id}")
 
 # Global logger instance
-file_logger = IzishopFileLogger()
+file_logger = IzishopFileLogger()# Comment to trigger reload

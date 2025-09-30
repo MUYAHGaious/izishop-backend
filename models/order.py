@@ -7,12 +7,33 @@ from database.base import Base
 import enum
 
 class OrderStatus(enum.Enum):
+    # Pre-fulfillment stages
     PENDING = "pending"
+    CONFIRMED = "confirmed"
+    PAYMENT_PROCESSING = "payment_processing"
+    PAYMENT_CONFIRMED = "payment_confirmed"
+
+    # Fulfillment stages
     PROCESSING = "processing"
-    SHIPPED = "shipped"
+    PICKING = "picking"
+    PACKED = "packed"
+    READY_FOR_PICKUP = "ready_for_pickup"
+
+    # Shipping stages
+    PICKED_UP = "picked_up"
+    IN_TRANSIT = "in_transit"
+    OUT_FOR_DELIVERY = "out_for_delivery"
+    DELIVERY_ATTEMPTED = "delivery_attempted"
+
+    # Completion stages
     DELIVERED = "delivered"
+    COMPLETED = "completed"
+
+    # Exception stages
     CANCELLED = "cancelled"
     RETURNED = "returned"
+    REFUNDED = "refunded"
+    EXCEPTION = "exception"
 
 class PaymentStatus(enum.Enum):
     PENDING = "pending"
@@ -36,6 +57,28 @@ class Order(Base):
     carrier = Column(String(100), nullable=True)
     delivery_instructions = Column(Text, nullable=True)
     status_updated_at = Column(DateTime, nullable=True)
+
+    # Enhanced status tracking timestamps
+    confirmed_at = Column(DateTime, nullable=True)
+    payment_confirmed_at = Column(DateTime, nullable=True)
+    processing_started_at = Column(DateTime, nullable=True)
+    packed_at = Column(DateTime, nullable=True)
+    picked_up_at = Column(DateTime, nullable=True)
+    shipped_at = Column(DateTime, nullable=True)
+    out_for_delivery_at = Column(DateTime, nullable=True)
+    delivered_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # Dynamic delivery estimate (updates based on carrier info)
+    current_estimated_delivery = Column(DateTime, nullable=True)
+    delivery_window_start = Column(DateTime, nullable=True)
+    delivery_window_end = Column(DateTime, nullable=True)
+
+    # Cancellation tracking
+    cancelled_at = Column(DateTime, nullable=True)
+    cancellation_reason = Column(String(100), nullable=True)
+    can_be_cancelled = Column(Boolean, default=True, nullable=False)
+
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

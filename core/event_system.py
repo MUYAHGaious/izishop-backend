@@ -20,6 +20,9 @@ class EventType(str, Enum):
     SHOP_CREATED = "shop.created"
     NOTIFICATION_CREATED = "notification.created"
     AUDIT_LOG_CREATED = "audit.log_created"
+    ORDER_STATUS_CHANGED = "order.status_changed"
+    ORDER_CREATED = "order.created"
+    ORDER_CANCELLED = "order.cancelled"
 
 @dataclass
 class EventMetadata:
@@ -61,7 +64,7 @@ class SystemEvent:
 class RoleUpgradeEvent(SystemEvent):
     """Specific event for role upgrades"""
     def __init__(
-        self, 
+        self,
         user_id: UUID,
         old_role: str,
         new_role: str,
@@ -80,6 +83,36 @@ class RoleUpgradeEvent(SystemEvent):
             },
             metadata=metadata or EventMetadata(),
             source="role_manager"
+        )
+
+@dataclass
+class OrderStatusChangeEvent(SystemEvent):
+    """Specific event for order status changes"""
+    def __init__(
+        self,
+        order_id: str,
+        customer_id: str,
+        old_status: str,
+        new_status: str,
+        changed_by: Optional[str] = None,
+        notes: Optional[str] = None,
+        estimated_delivery: Optional[str] = None,
+        metadata: Optional[EventMetadata] = None
+    ):
+        super().__init__(
+            event_type=EventType.ORDER_STATUS_CHANGED,
+            data={
+                "order_id": order_id,
+                "customer_id": customer_id,
+                "old_status": old_status,
+                "new_status": new_status,
+                "changed_by": changed_by,
+                "notes": notes,
+                "estimated_delivery": estimated_delivery,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            },
+            metadata=metadata or EventMetadata(),
+            source="order_service"
         )
 
 class EventBus:
@@ -226,7 +259,7 @@ async def logging_middleware(event: SystemEvent) -> SystemEvent:
 async def audit_middleware(event: SystemEvent) -> SystemEvent:
     """Create audit logs for important events"""
     # This will be connected to the audit service later
-    if event.event_type in [EventType.ROLE_UPGRADED, EventType.SHOP_CREATED]:
+    if event.event_type in [EventType.ROLE_UPGRADED, EventType.SHOP_CREATED, EventType.ORDER_STATUS_CHANGED, EventType.ORDER_CANCELLED]:
         logger.info(f"Audit required for event: {event.event_type.value}")
     return event
 

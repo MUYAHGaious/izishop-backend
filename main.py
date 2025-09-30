@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from database.connection import create_tables, get_db
 # Import all models to ensure they're registered with SQLAlchemy
 from models import user, shop, product, order, subscription, analytics, casual_listing, review, chat, contacts
-from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug, tranzak_webhooks, casual_listings, transaction_fees, delivery_partner, subscription_management, analytics, batch_operations, wishlist, chat
+from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug, tranzak_webhooks, casual_listings, transaction_fees, delivery_partner, subscription_management, analytics, batch_operations, wishlist, chat, order_optimized
 # Upload router for image uploads - temporarily disabled
 # from routers import upload
 from routers.auth import get_current_user
@@ -371,6 +371,7 @@ app.include_router(rating.router, tags=["Ratings"])
 app.include_router(notification.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(notifications.router, prefix="/api/ai-notifications", tags=["AI Notifications"])
 app.include_router(order.router, prefix="/api/orders", tags=["Orders"])
+app.include_router(order_optimized.router, prefix="/api/orders-v2", tags=["Orders V2 - Optimized"])
 app.include_router(shop_owner.router, prefix="/api/shop-owner", tags=["Shop Owner"])
 app.include_router(customer.router, prefix="/api/customer", tags=["Customer"])
 app.include_router(debug.router, tags=["Debug"])
@@ -394,6 +395,15 @@ async def startup_event():
         logger.info("Starting up Izishop Backend API...")
         create_tables()
         logger.info("Database tables created successfully")
+
+        # Initialize event bus and notification handlers
+        from core.event_system import event_bus
+        from services.order_notification_handler import order_notification_handler
+
+        await event_bus.initialize()
+        logger.info("Event bus initialized successfully")
+
+        logger.info("Order notification handler registered")
         logger.info("Izishop Backend API started successfully")
     except Exception as e:
         logger.error(f"Failed to start application: {str(e)}")

@@ -3,6 +3,7 @@ Tranzak webhooks and subscription management for IziShopin
 """
 import logging
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -11,6 +12,8 @@ from services.auth import get_current_user
 from models.user import User
 from models.shop import Shop
 from models.subscription import Subscription
+from models.order import PaymentStatus
+from services.payment_distribution import PaymentDistributionService
 import httpx
 import json
 import os
@@ -158,12 +161,29 @@ async def create_shop_subscription(
             Subscription.user_id == current_user.id,
             Subscription.status.in_(['active', 'trialing'])
         ).first()
-        
+
         if existing_sub:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User already has an active subscription"
-            )
+            # Check if the user's role is already shop_owner
+            if current_user.role == 'shop_owner':
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="You are already a shop owner with an active subscription. No need to upgrade again!"
+                )
+            else:
+                # User has a subscription but not the role - this is a data inconsistency
+                # This can happen if:
+                # 1. Payment succeeded but role upgrade failed
+                # 2. Manual database changes
+                # 3. Previous upgrade attempt was interrupted
+                logger.warning(
+                    f"Data inconsistency detected: User {current_user.id} has active subscription "
+                    f"(ID: {existing_sub.id}, status: {existing_sub.status}) but role is {current_user.role}, not shop_owner. "
+                    f"Cancelling old subscription to allow fresh upgrade."
+                )
+                existing_sub.status = 'cancelled'
+                existing_sub.cancelled_at = datetime.now(timezone.utc)
+                db.commit()
+                logger.info(f"Successfully cancelled stale subscription {existing_sub.id} for user {current_user.id}")
         
         # DEVELOPMENT MODE: Check if we're in development
         is_development = os.getenv('ENVIRONMENT', 'development').lower() in ['development', 'dev', 'local']
@@ -286,7 +306,16 @@ async def tranzak_webhooks(request: Request, db: Session = Depends(get_db)):
             # Check transaction status within the completed request
             request_status = transaction_data.get('requestStatus')
             if request_status == 'SUCCESSFUL':
-                await handle_payment_successful(transaction_data, db)
+                # Check if this is an order payment or subscription payment
+                custom_data = transaction_data.get('customData', {})
+                order_id = custom_data.get('orderId')
+                
+                if order_id:
+                    # This is an order payment
+                    await handle_order_payment_successful(transaction_data, db)
+                else:
+                    # This is a subscription payment
+                    await handle_payment_successful(transaction_data, db)
             elif request_status == 'FAILED':
                 await handle_payment_failed_tranzak(transaction_data, db)
             elif request_status == 'CANCELLED':
@@ -367,6 +396,94 @@ async def handle_payment_successful(transaction_data, db: Session):
         
     except Exception as e:
         logger.error(f"Error handling payment success: {str(e)}")
+        db.rollback()
+
+
+async def handle_order_payment_successful(transaction_data, db: Session):
+    """Handle successful order payment completion"""
+    try:
+        custom_data = transaction_data.get('customData', {})
+        order_id = custom_data.get('orderId')
+        customer_id = custom_data.get('customerId')
+        amount = transaction_data.get('amount', 0)
+        
+        if not order_id:
+            logger.error("No orderId in transaction customData")
+            return
+            
+        logger.info(f"Order payment successful for order {order_id}")
+        
+        # Initialize payment distribution service
+        payment_service = PaymentDistributionService(db)
+        
+        # Check if this is a multi-vendor order
+        master_order = db.query(Order).filter(Order.id == order_id).first()
+        
+        if master_order and master_order.shop_id is None:
+            # This is a master order (multi-vendor)
+            logger.info(f"Processing multi-vendor payment for master order {order_id}")
+            
+            # Distribute payment to vendors
+            distribution_result = await payment_service.distribute_multi_vendor_payment(
+                master_order_id=order_id,
+                payment_reference=transaction_data.get('requestId', ''),
+                total_payment_amount=Decimal(str(amount))
+            )
+            
+            logger.info(f"Payment distribution completed: {distribution_result}")
+            
+        else:
+            # This is a single-vendor order
+            logger.info(f"Processing single-vendor payment for order {order_id}")
+            
+            # Update order payment status
+            order = db.query(Order).filter(Order.id == order_id).first()
+            if order:
+                order.payment_status = PaymentStatus.PAID
+                order.updated_at = datetime.now(timezone.utc)
+                
+                # Send notification to vendor
+                shop = db.query(Shop).filter(Shop.id == order.shop_id).first()
+                if shop:
+                    vendor = db.query(User).filter(User.id == shop.owner_id).first()
+                    if vendor:
+                        from models.notification import Notification, NotificationType, NotificationPriority
+                        
+                        notification = Notification(
+                            user_id=vendor.id,
+                            type=NotificationType.PAYMENT,
+                            title="💰 Payment Received!",
+                            message=f"""Great news! You've received a payment for your order.
+
+💳 PAYMENT DETAILS:
+• Order ID: {order.id}
+• Amount: ${order.total_amount}
+• Payment Reference: {transaction_data.get('requestId', 'N/A')}
+
+🚀 NEXT STEPS:
+1. Review order details in your dashboard
+2. Prepare items for shipping
+3. Update order status when ready to ship
+
+Need help? Contact our support team anytime!
+
+IziShopin Team 🚀""",
+                            related_id=order.id,
+                            related_type="payment_received",
+                            priority=NotificationPriority.HIGH,
+                            action_url=f"/shop-owner-dashboard/orders/{order.id}",
+                            action_label="View Order",
+                            icon="CreditCard"
+                        )
+                        
+                        db.add(notification)
+                        logger.info(f"Created payment notification for vendor {vendor.email}")
+        
+        db.commit()
+        logger.info(f"Order payment processing completed for order {order_id}")
+        
+    except Exception as e:
+        logger.error(f"Error handling order payment success: {str(e)}")
         db.rollback()
 
 

@@ -101,6 +101,16 @@ class ProductUpdate(BaseModel):
             raise ValueError('Product name cannot be empty')
         return v.strip() if v else v
 
+class ShopInfo(BaseModel):
+    """Embedded shop information for products"""
+    id: str
+    name: str
+    owner_name: Optional[str] = None
+    verified: bool = False
+    rating: Optional[float] = None
+    total_reviews: int = 0
+    location: Optional[str] = None
+
 class ProductResponse(BaseModel):
     id: str
     seller_id: str
@@ -109,6 +119,9 @@ class ProductResponse(BaseModel):
     price: Decimal
     stock_quantity: int
     category: Optional[str]
+
+    # Shop information - directly embedded
+    shop: Optional[ShopInfo] = None
 
     # Enhanced product fields
     sku: Optional[str] = None
