@@ -67,20 +67,20 @@ class OrderCancellationService:
 
             # Different time windows based on order status
             if order.status == OrderStatus.PENDING:
-                # 2 hours for pending orders (industry standard)
-                if time_since_order > timedelta(hours=2):
+                # 24 hours for pending orders (customer-friendly window)
+                if time_since_order > timedelta(hours=24):
                     return CancellationPolicy(
                         can_cancel=False,
-                        reason="Cancellation window expired (2 hours for pending orders)",
-                        time_limit_hours=2
+                        reason="Cancellation window expired (24 hours for pending orders)",
+                        time_limit_hours=24
                     )
             elif order.status == OrderStatus.PROCESSING:
-                # 1 hour for processing orders
-                if time_since_order > timedelta(hours=1):
+                # 12 hours for processing orders (customer-friendly window)
+                if time_since_order > timedelta(hours=12):
                     return CancellationPolicy(
                         can_cancel=False,
-                        reason="Cancellation window expired (1 hour for processing orders)",
-                        time_limit_hours=1
+                        reason="Cancellation window expired (12 hours for processing orders)",
+                        time_limit_hours=12
                     )
             elif order.status == OrderStatus.SHIPPED:
                 # No cancellation for shipped orders

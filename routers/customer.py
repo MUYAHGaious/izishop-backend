@@ -84,8 +84,15 @@ async def get_customer_orders(
 ):
     """Get customer orders with pagination"""
     try:
+        logger.info(f"====== GET CUSTOMER ORDERS CALLED ======")
+        logger.info(f"Customer ID: {current_user.id}")
+        logger.info(f"Customer Email: {current_user.email}")
+        logger.info(f"Page: {page}, Limit: {limit}, Status: {status}")
+
         # Build query
         query = db.query(Order).filter(Order.customer_id == current_user.id)
+
+        logger.info(f"Query built for customer_id: {current_user.id}")
 
         if status:
             try:
@@ -108,8 +115,12 @@ async def get_customer_orders(
         offset = (page - 1) * limit
         orders = query.order_by(desc(Order.created_at)).offset(offset).limit(limit).all()
 
+        logger.info(f"Found {len(orders)} orders for customer {current_user.id}")
+
         order_list = []
         for order in orders:
+            logger.info(f"Processing order {order.id}")
+
             # Get shop info if available
             shop = db.query(Shop).filter(Shop.id == order.shop_id).first() if hasattr(order, 'shop_id') and order.shop_id else None
 
@@ -135,7 +146,9 @@ async def get_customer_orders(
             # Get order items (query separately since relationship is commented out)
             order_items = []
             try:
+                logger.info(f"Querying OrderItem for order_id: {order.id}")
                 items = db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
+                logger.info(f"Found {len(items)} items for order {order.id}")
                 for item in items:
                     product = db.query(Product).filter(Product.id == item.product_id).first()
                     # Get first image from image_urls array (it's a JSON field)

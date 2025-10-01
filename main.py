@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from database.connection import create_tables, get_db
 # Import all models to ensure they're registered with SQLAlchemy
 from models import user, shop, product, order, subscription, analytics, casual_listing, review, chat, contacts
-from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug, tranzak_webhooks, casual_listings, transaction_fees, delivery_partner, subscription_management, analytics, batch_operations, wishlist, chat, order_optimized
+from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug, tranzak_webhooks, casual_listings, transaction_fees, delivery_partner, subscription_management, analytics, batch_operations, wishlist, chat, order_optimized, frontend_debug
 # Upload router for image uploads - temporarily disabled
 # from routers import upload
 from routers.auth import get_current_user
@@ -384,6 +384,7 @@ app.include_router(analytics.router, tags=["Analytics"])
 app.include_router(batch_operations.router, prefix="/api", tags=["Batch Operations"])
 app.include_router(wishlist.router, prefix="/api", tags=["Wishlist"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
+app.include_router(frontend_debug.router, tags=["Frontend Debug"])
 # Temporarily disable upload router due to unicode issues
 # app.include_router(upload.router, prefix="/api/uploads", tags=["File Uploads"])
 
