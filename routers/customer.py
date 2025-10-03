@@ -28,30 +28,50 @@ async def get_customer_stats(
 ):
     """Get customer statistics"""
     try:
+        logger.info(f"📊 Getting customer stats for user: {current_user.id} ({current_user.email})")
+
+        # Debug: Check all orders in database
+        all_orders = db.query(Order).all()
+        logger.info(f"  🔍 Total orders in entire database: {len(all_orders)}")
+
+        # Debug: Check orders for this customer
+        customer_orders = db.query(Order).filter(Order.customer_id == current_user.id).all()
+        logger.info(f"  🔍 Orders for customer {current_user.id}: {len(customer_orders)}")
+        if customer_orders:
+            for order in customer_orders:
+                logger.info(f"    Order ID: {order.id}, Status: {order.status}, Amount: {order.total_amount}, Customer ID: {order.customer_id}")
+
         # Get customer's order statistics
         total_orders = db.query(func.count(Order.id)).filter(
             Order.customer_id == current_user.id
         ).scalar() or 0
-        
-        # Get total spent
+
+        logger.info(f"  📦 Total orders found: {total_orders}")
+
+        # Get total spent (sum of ALL orders regardless of status)
         total_spent = db.query(func.sum(Order.total_amount)).filter(
-            Order.customer_id == current_user.id,
-            Order.status.in_([OrderStatus.DELIVERED, OrderStatus.SHIPPED])
+            Order.customer_id == current_user.id
         ).scalar() or 0
-        
+
+        logger.info(f"  💰 Total spent: {total_spent}")
+
         # Get recent orders count (last 30 days)
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
         recent_orders = db.query(func.count(Order.id)).filter(
             Order.customer_id == current_user.id,
             Order.created_at >= thirty_days_ago
         ).scalar() or 0
-        
-        # Get pending orders
+
+        logger.info(f"  📅 Recent orders (30 days): {recent_orders}")
+
+        # Get pending orders (active orders)
         pending_orders = db.query(func.count(Order.id)).filter(
             Order.customer_id == current_user.id,
-            Order.status == OrderStatus.PENDING
+            Order.status.in_([OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PROCESSING, OrderStatus.IN_TRANSIT])
         ).scalar() or 0
-        
+
+        logger.info(f"  ⏳ Active orders: {pending_orders}")
+
         stats = {
             "total_orders": total_orders,
             "total_spent": float(total_spent),
@@ -59,12 +79,15 @@ async def get_customer_stats(
             "pending_orders": pending_orders,
             "avg_order_value": float(total_spent / total_orders) if total_orders > 0 else 0
         }
-        
+
+        logger.info(f"✅ Returning stats: {stats}")
+
         # Return stats directly for frontend compatibility
         return stats
-        
+
     except Exception as e:
-        logger.error(f"Error getting customer stats: {str(e)}")
+        logger.error(f"❌ Error getting customer stats: {str(e)}")
+        logger.exception(e)
         # Return default stats on error to prevent frontend crashes
         return {
             "total_orders": 0,

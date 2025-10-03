@@ -76,7 +76,9 @@ async def get_shop_owner_analytics(
     Get analytics data for shop owner dashboard.
     """
     try:
+        logger.info(f"📊 Getting analytics for user {current_user.id}, range: {range}")
         shop = get_shop_owner_shop(current_user, db)
+        logger.info(f"✅ Found shop: {shop.id}")
         
         # Calculate date ranges
         start_date, end_date = calculate_date_range(range)
@@ -144,19 +146,21 @@ async def get_shop_owner_analytics(
                 # New vs returning customers (simplified - customers who ordered in previous period)
                 previous_customer_ids = set(order.customer_id for order in previous_orders)
                 current_customer_ids = set(order.customer_id for order in current_orders)
-                
+
                 new_customers = len(current_customer_ids - previous_customer_ids)
                 returning_customers = len(current_customer_ids & previous_customer_ids)
-                
+
                 analytics["customers"]["new"] = new_customers
                 analytics["customers"]["returning"] = returning_customers
                 analytics["customers"]["retention_rate"] = round((returning_customers / len(previous_customer_ids)) * 100, 1) if previous_customer_ids else 0
                 analytics["customers"]["lifetime_value"] = float(current_revenue / current_customers)
-            
+
             # No real conversion rate data available yet - return zeros
             analytics["conversionRate"]["current"] = 0.0
             analytics["conversionRate"]["previous"] = 0.0
             analytics["conversionRate"]["change"] = 0.0
+
+            logger.info(f"✅ Analytics calculated: revenue={current_revenue}, orders={current_order_count}, customers={current_customers}")
             
         except ImportError:
             # Order model doesn't exist yet, return zeros for new users

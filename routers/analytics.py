@@ -24,6 +24,7 @@ async def get_user_statistics(
 ):
     """Get comprehensive user statistics including products, orders, and revenue"""
     try:
+        logger.info(f"📊 Getting user stats for user: {current_user.id}")
         user_id = current_user.id
         
         # Get current month start and end
@@ -67,26 +68,43 @@ async def get_user_statistics(
                 Order.created_at <= month_end
             ).count()
             
-            # Calculate total revenue from completed orders
+            # Calculate total revenue from completed orders (using uppercase enum values)
             completed_orders = db.query(Order).filter(
                 Order.shop_id == shop_id,
-                Order.status.in_(['delivered', 'shipped']),
-                Order.payment_status == 'paid'
+                Order.status.in_(['DELIVERED', 'SHIPPED', 'IN_TRANSIT', 'PROCESSING', 'COMPLETED'])
             ).all()
-            
+
             total_revenue = sum(float(order.total_amount) for order in completed_orders)
-            
+
             # Revenue this month
             completed_orders_this_month = db.query(Order).filter(
                 Order.shop_id == shop_id,
-                Order.status.in_(['delivered', 'shipped']),
-                Order.payment_status == 'paid',
+                Order.status.in_(['DELIVERED', 'SHIPPED', 'IN_TRANSIT', 'PROCESSING', 'COMPLETED']),
                 Order.created_at >= month_start,
                 Order.created_at <= month_end
             ).all()
-            
+
             revenue_this_month = sum(float(order.total_amount) for order in completed_orders_this_month)
-        
+
+        # Get pending orders count (orders that need attention)
+        pending_orders = 0
+        if shop_id:
+            pending_orders = db.query(Order).filter(
+                Order.shop_id == shop_id,
+                Order.status.in_(['PENDING', 'CONFIRMED', 'PROCESSING', 'IN_TRANSIT'])
+            ).count()
+
+        # Get low stock items count (stock <= 10)
+        low_stock_items = 0
+        if shop_id:
+            low_stock_items = db.query(Product).filter(
+                Product.shop_id == shop_id,
+                Product.is_active == True,
+                Product.stock <= 10
+            ).count()
+
+        logger.info(f"✅ User stats calculated: products={total_products}, orders={total_orders}, revenue={total_revenue}, pending={pending_orders}, low_stock={low_stock_items}")
+
         # Calculate usage limits based on user role
         if current_user.role == 'SHOP_OWNER':
             product_limit = None  # Unlimited
@@ -118,7 +136,9 @@ async def get_user_statistics(
                     "total_revenue": round(total_revenue, 2),
                     "products_this_month": products_this_month,
                     "orders_this_month": orders_this_month,
-                    "revenue_this_month": round(revenue_this_month, 2)
+                    "revenue_this_month": round(revenue_this_month, 2),
+                    "pending_orders": pending_orders,
+                    "low_stock_items": low_stock_items
                 },
                 "usage": {
                     "products": {
