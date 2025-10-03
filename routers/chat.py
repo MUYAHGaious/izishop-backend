@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, BackgroundTasks, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from database.connection import get_db
@@ -16,12 +17,23 @@ from models.product import Product
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timedelta
+from pathlib import Path
+import shutil
 import json
 import uuid
 import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Constants for media uploads
+UPLOAD_DIR = Path("uploads")
+CHAT_MEDIA_DIR = UPLOAD_DIR / "chat_media"
+CHAT_MEDIA_DIR.mkdir(exist_ok=True, parents=True)
+MAX_MEDIA_SIZE = 50 * 1024 * 1024  # 50MB
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+ALLOWED_VIDEO_TYPES = {"video/mp4", "video/webm"}
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".webm"}
 
 # Utility function to format datetime as UTC ISO string
 def format_utc_timestamp(dt: datetime) -> str:
@@ -217,14 +229,25 @@ async def handle_send_message(message_data: dict, user_id: str, db: Session):
     try:
         conversation_id = message_data['conversation_id']
         content = message_data['content']
+        message_type = message_data.get('message_type', 'text')
+
+        # Handle media attachments
+        media_url = message_data.get('media_url')
+        media_type = message_data.get('media_type')
+        media_name = message_data.get('media_name')
+        media_size = message_data.get('media_size')
 
         # Create message in database
         message = Message(
             conversation_id=conversation_id,
             sender_id=user_id,
             content=content,
-            message_type=message_data.get('message_type', 'text'),
-            status=MessageStatus.SENT
+            message_type=message_type,
+            status=MessageStatus.SENT,
+            attachment_url=media_url,
+            attachment_type=media_type,
+            attachment_name=media_name,
+            attachment_size=media_size
         )
         db.add(message)
 
@@ -235,17 +258,29 @@ async def handle_send_message(message_data: dict, user_id: str, db: Session):
 
         db.commit()
 
+        # Build message payload for WebSocket
+        message_payload = {
+            'id': message.id,
+            'conversation_id': conversation_id,
+            'sender_id': user_id,
+            'content': content,
+            'created_at': format_utc_timestamp(message.created_at),
+            'message_type': message.message_type
+        }
+
+        # Add media info if present
+        if media_url:
+            message_payload['media'] = {
+                'url': media_url,
+                'type': media_type,
+                'name': media_name,
+                'size': media_size
+            }
+
         # Send to all participants
         await notify_conversation_participants(conversation_id, {
             'type': 'new_message',
-            'message': {
-                'id': message.id,
-                'conversation_id': conversation_id,
-                'sender_id': user_id,
-                'content': content,
-                'created_at': format_utc_timestamp(message.created_at),
-                'message_type': message.message_type
-            }
+            'message': message_payload
         }, exclude_user=user_id, db=db)
 
         # Generate bot response if applicable
@@ -563,6 +598,16 @@ def format_conversation_response(conversation: Conversation, user_id: str, db: S
 
 def format_message_response(message: Message, sender: User) -> MessageResponse:
     """Format message for API response"""
+    # Build attachments list if media exists
+    attachments = None
+    if message.attachment_url:
+        attachments = [{
+            'url': message.attachment_url,
+            'type': message.attachment_type,
+            'name': message.attachment_name,
+            'size': message.attachment_size
+        }]
+
     return MessageResponse(
         id=message.id,
         conversation_id=message.conversation_id,
@@ -576,7 +621,7 @@ def format_message_response(message: Message, sender: User) -> MessageResponse:
         created_at=message.created_at,
         read_at=message.read_at,
         reply_to=None,  # TODO: implement reply_to formatting
-        attachments=None  # TODO: implement attachments
+        attachments=attachments
     )
 
 # User discovery and contact management endpoints
@@ -965,3 +1010,108 @@ def get_conversation_title(conversation: Conversation, user_id: str, db: Session
                 return f"{other_user.first_name} {other_user.last_name}"
 
     return "Chat"
+
+def validate_media_file(file: UploadFile) -> str:
+    """Validate uploaded media file and return media type"""
+    # Check file size
+    if file.size and file.size > MAX_MEDIA_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File size too large. Maximum size allowed is {MAX_MEDIA_SIZE // (1024*1024)}MB"
+        )
+
+    # Check file extension
+    if file.filename:
+        file_ext = Path(file.filename).suffix.lower()
+        if file_ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file type. Allowed types: images (jpg, png, gif, webp) and videos (mp4, webm)"
+            )
+
+    # Check MIME type and determine media type
+    if file.content_type in ALLOWED_IMAGE_TYPES:
+        return "image"
+    elif file.content_type in ALLOWED_VIDEO_TYPES:
+        return "video"
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid content type. Allowed types: {', '.join(ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES)}"
+        )
+
+@router.post("/media/upload")
+async def upload_chat_media(
+    file: UploadFile = File(...),
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Upload chat media file (image or video)"""
+    try:
+        # Validate file
+        media_type = validate_media_file(file)
+
+        # Generate unique filename
+        file_ext = Path(file.filename).suffix.lower() if file.filename else (".jpg" if media_type == "image" else ".mp4")
+        filename = f"{current_user.id}_{media_type}_{uuid.uuid4().hex}{file_ext}"
+        file_path = CHAT_MEDIA_DIR / filename
+
+        # Save uploaded file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # Return relative path for URL
+        media_url = f"/uploads/chat_media/{filename}"
+
+        logger.info(f"Chat media uploaded: {filename} by {current_user.email}")
+
+        return {
+            "message": "Media uploaded successfully",
+            "url": media_url,
+            "type": media_type,
+            "filename": filename,
+            "size": file.size
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading chat media: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to upload media"
+        )
+
+@router.get("/chat_media/{filename}")
+async def serve_chat_media(filename: str):
+    """Serve chat media files"""
+    file_path = CHAT_MEDIA_DIR / filename
+
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Media file not found"
+        )
+
+    # Determine content type based on file extension
+    ext = file_path.suffix.lower()
+    if ext in {".jpg", ".jpeg"}:
+        media_type = "image/jpeg"
+    elif ext == ".png":
+        media_type = "image/png"
+    elif ext == ".gif":
+        media_type = "image/gif"
+    elif ext == ".webp":
+        media_type = "image/webp"
+    elif ext == ".mp4":
+        media_type = "video/mp4"
+    elif ext == ".webm":
+        media_type = "video/webm"
+    else:
+        media_type = "application/octet-stream"
+
+    return FileResponse(
+        path=file_path,
+        media_type=media_type,
+        filename=filename
+    )

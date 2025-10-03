@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from database.connection import create_tables, get_db
 # Import all models to ensure they're registered with SQLAlchemy
@@ -387,6 +388,12 @@ app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(frontend_debug.router, tags=["Frontend Debug"])
 # Temporarily disable upload router due to unicode issues
 # app.include_router(upload.router, prefix="/api/uploads", tags=["File Uploads"])
+
+# Mount static files for serving uploaded media
+import os
+uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(uploads_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 # Create database tables on startup
 @app.on_event("startup")
