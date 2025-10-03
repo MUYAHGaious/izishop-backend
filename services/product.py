@@ -254,6 +254,7 @@ def get_products_for_catalog(
                         # Only select the basic columns that exist in the database
                         shop = db.query(
                             Shop.id,
+                            Shop.owner_id,  # IMPORTANT: Need this for messaging!
                             Shop.name,
                             Shop.is_verified,
                             Shop.average_rating,
@@ -264,6 +265,7 @@ def get_products_for_catalog(
                         if shop:
                             shop_info = {
                                 'shop_id': shop.id,
+                                'shop_owner_id': shop.owner_id,  # CRITICAL: This is the user ID to message!
                                 'shop_name': shop.name,
                                 'shop_verified': shop.is_verified,
                                 'shop_rating': shop.average_rating,

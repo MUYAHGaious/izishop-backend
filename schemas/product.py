@@ -104,6 +104,7 @@ class ProductUpdate(BaseModel):
 class ShopInfo(BaseModel):
     """Embedded shop information for products"""
     id: str
+    owner_id: str  # The actual user ID who owns the shop - needed for messaging
     name: str
     owner_name: Optional[str] = None
     verified: bool = False
@@ -114,6 +115,7 @@ class ShopInfo(BaseModel):
 class ProductResponse(BaseModel):
     id: str
     seller_id: str
+    seller_name: Optional[str] = None  # Individual seller name (when no shop)
     name: str
     description: Optional[str]
     price: Decimal

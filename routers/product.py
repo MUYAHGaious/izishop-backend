@@ -204,16 +204,42 @@ def get_products(
 def get_product(product_id: str, db: Session = Depends(get_db)):
     """Get a specific product by ID (public endpoint)"""
     try:
+        from models.shop import Shop
+        from models.user import User
+        from schemas.product import ShopInfo
+
         product = get_product_by_id(db=db, product_id=product_id)
-        
+
         if not product:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Product not found"
             )
-        
-        return ProductResponse.from_orm(product)
-        
+
+        # Load shop information including owner_id
+        shop = db.query(Shop).filter(Shop.owner_id == product.seller_id).first()
+
+        product_response = ProductResponse.from_orm(product)
+
+        if shop:
+            product_response.shop = ShopInfo(
+                id=shop.id,
+                owner_id=shop.owner_id,  # This is the key field we need!
+                name=shop.name,
+                verified=shop.verified if hasattr(shop, 'verified') else False,
+                rating=shop.rating if hasattr(shop, 'rating') else None,
+                total_reviews=shop.total_reviews if hasattr(shop, 'total_reviews') else 0,
+                location=shop.location if hasattr(shop, 'location') else None
+            )
+        else:
+            # No shop - get seller's user info for individual sellers
+            seller = db.query(User).filter(User.id == product.seller_id).first()
+            if seller:
+                # Add seller_name to product response using first_name and last_name
+                product_response.seller_name = f"{seller.first_name} {seller.last_name}".strip() if seller.first_name or seller.last_name else None
+
+        return product_response
+
     except HTTPException:
         raise
     except Exception as e:

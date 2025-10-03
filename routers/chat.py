@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, BackgroundTasks
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from database.connection import get_db
 from schemas.user import UserResponse
 from routers.auth import get_current_user
@@ -21,6 +22,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Utility function to format datetime as UTC ISO string
+def format_utc_timestamp(dt: datetime) -> str:
+    """Format datetime as UTC ISO string with Z suffix"""
+    if dt is None:
+        return None
+    # Ensure the datetime is treated as UTC
+    if dt.tzinfo is None:
+        # Assume naive datetime is UTC (as SQLite stores it)
+        return dt.isoformat() + 'Z'
+    return dt.isoformat()
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -231,7 +243,7 @@ async def handle_send_message(message_data: dict, user_id: str, db: Session):
                 'conversation_id': conversation_id,
                 'sender_id': user_id,
                 'content': content,
-                'created_at': message.created_at.isoformat(),
+                'created_at': format_utc_timestamp(message.created_at),
                 'message_type': message.message_type
             }
         }, exclude_user=user_id, db=db)
@@ -318,7 +330,7 @@ async def generate_bot_response(conversation: Conversation, user_message: Messag
                 'sender_id': "system",
                 'sender_name': "IziShop Assistant",
                 'content': bot_response,
-                'created_at': bot_message.created_at.isoformat(),
+                'created_at': format_utc_timestamp(bot_message.created_at),
                 'is_bot_message': True,
                 'message_type': 'text'
             }
@@ -496,7 +508,7 @@ def format_conversation_response(conversation: Conversation, user_id: str, db: S
         last_message_data = {
             'content': last_message.content,
             'sender_name': f"{sender.first_name} {sender.last_name}" if sender else "System",
-            'created_at': last_message.created_at.isoformat(),
+            'created_at': format_utc_timestamp(last_message.created_at),
             'is_bot_message': last_message.is_bot_message
         }
 
@@ -514,7 +526,7 @@ def format_conversation_response(conversation: Conversation, user_id: str, db: S
                 'id': user.id,
                 'name': f"{user.first_name} {user.last_name}",
                 'avatar': getattr(user, 'avatar', None),
-                'last_seen': p.last_seen_at.isoformat() if p.last_seen_at else None
+                'last_seen': format_utc_timestamp(p.last_seen_at)
             })
 
     # Context data
@@ -728,11 +740,23 @@ async def get_contacts(
 @router.post("/conversations/direct", response_model=ConversationResponse)
 async def create_direct_conversation(
     conversation_data: DirectMessageCreate,
+    background_tasks: BackgroundTasks,
     current_user: UserResponse = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Create a direct message conversation"""
     try:
+        # Validate recipient exists
+        from models.user import User
+        recipient = db.query(User).filter(User.id == conversation_data.recipient_id).first()
+        if not recipient:
+            logger.warning(f"Recipient not found: {conversation_data.recipient_id}")
+            raise HTTPException(status_code=404, detail=f"Recipient user not found: {conversation_data.recipient_id}")
+
+        # Check if user is trying to message themselves
+        if current_user.id == conversation_data.recipient_id:
+            raise HTTPException(status_code=400, detail="Cannot create conversation with yourself")
+
         # Check if conversation already exists
         existing = db.query(Conversation).join(ConversationParticipant).filter(
             Conversation.type == ConversationType.DIRECT_MESSAGE,
@@ -742,6 +766,53 @@ async def create_direct_conversation(
         ).first()
 
         if existing:
+            logger.info(f"Found existing conversation: {existing.id}")
+
+            # If there's an initial message, add it to the existing conversation
+            if conversation_data.initial_message:
+                # Create new message
+                new_message = Message(
+                    conversation_id=existing.id,
+                    sender_id=current_user.id,
+                    content=conversation_data.initial_message,
+                    message_type="text",
+                    status=MessageStatus.SENT
+                )
+                db.add(new_message)
+
+                # Update conversation timestamp
+                existing.last_message_at = datetime.utcnow()
+
+                # Increment recipient's unread count
+                recipient_participant = db.query(ConversationParticipant).filter(
+                    ConversationParticipant.conversation_id == existing.id,
+                    ConversationParticipant.user_id == conversation_data.recipient_id
+                ).first()
+
+                if recipient_participant:
+                    recipient_participant.unread_count += 1
+
+                db.commit()
+
+                # Notify recipient via WebSocket
+                background_tasks.add_task(
+                    notify_conversation_participants,
+                    existing.id,
+                    {
+                        'type': 'new_message',
+                        'message': {
+                            'id': new_message.id,
+                            'conversation_id': existing.id,
+                            'sender_id': current_user.id,
+                            'content': conversation_data.initial_message,
+                            'created_at': format_utc_timestamp(new_message.created_at),
+                            'message_type': 'text'
+                        }
+                    },
+                    current_user.id,  # exclude_user
+                    db
+                )
+
             return format_conversation_response(existing, current_user.id, db)
 
         # Create new conversation
@@ -752,14 +823,8 @@ async def create_direct_conversation(
         db.add(conversation)
         db.flush()
 
-        # Add participants
-        participants = [
-            ConversationParticipant(conversation_id=conversation.id, user_id=current_user.id),
-            ConversationParticipant(conversation_id=conversation.id, user_id=conversation_data.recipient_id)
-        ]
-        db.add_all(participants)
-
-        # Send initial message
+        # Send initial message first to determine unread counts
+        initial_message = None
         if conversation_data.initial_message:
             initial_message = Message(
                 conversation_id=conversation.id,
@@ -769,14 +834,58 @@ async def create_direct_conversation(
                 status=MessageStatus.SENT
             )
             db.add(initial_message)
+            db.flush()  # Flush to get the message ID
+
+        # Add participants with correct unread counts
+        # Current user has read the initial message (they sent it), recipient hasn't
+        participants = [
+            ConversationParticipant(
+                conversation_id=conversation.id,
+                user_id=current_user.id,
+                unread_count=0,  # Sender has no unread messages
+                last_seen_at=datetime.utcnow() if conversation_data.initial_message else None
+            ),
+            ConversationParticipant(
+                conversation_id=conversation.id,
+                user_id=conversation_data.recipient_id,
+                unread_count=1 if conversation_data.initial_message else 0,  # Recipient has 1 unread if there's an initial message
+                last_seen_at=None  # Recipient hasn't seen the conversation yet
+            )
+        ]
+        db.add_all(participants)
 
         db.commit()
 
+        # Notify recipient via WebSocket if initial message was sent
+        if conversation_data.initial_message and initial_message:
+            # Schedule notification as background task to avoid blocking response
+            background_tasks.add_task(
+                notify_conversation_participants,
+                conversation.id,
+                {
+                    'type': 'new_message',
+                    'message': {
+                        'id': initial_message.id,
+                        'conversation_id': conversation.id,
+                        'sender_id': current_user.id,
+                        'content': conversation_data.initial_message,
+                        'created_at': format_utc_timestamp(initial_message.created_at),
+                        'message_type': 'text'
+                    }
+                },
+                current_user.id,  # exclude_user
+                db
+            )
+
+        logger.info(f"Created new direct conversation: {conversation.id} between {current_user.id} and {conversation_data.recipient_id}")
         return format_conversation_response(conversation, current_user.id, db)
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error creating direct conversation: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create conversation")
+        logger.error(f"Error creating direct conversation: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create conversation: {str(e)}")
 
 @router.post("/conversations/group", response_model=ConversationResponse)
 async def create_group_conversation(
