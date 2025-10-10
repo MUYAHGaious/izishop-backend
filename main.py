@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from database.connection import create_tables, get_db
 # Import all models to ensure they're registered with SQLAlchemy
 from models import user, shop, product, order, subscription, analytics, casual_listing, review, chat, contacts
-from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug, tranzak_webhooks, casual_listings, transaction_fees, delivery_partner, subscription_management, analytics, batch_operations, wishlist, chat, order_optimized, frontend_debug
+from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug, tranzak_webhooks, casual_listings, transaction_fees, delivery_partner, subscription_management, analytics, batch_operations, wishlist, chat, order_optimized, frontend_debug, category, review
 # Upload router for image uploads - temporarily disabled
 # from routers import upload
 from routers.auth import get_current_user
@@ -170,56 +170,12 @@ async def test_cors():
         "low_stock_products": 2
     }
 
-# Categories endpoint
-@app.get("/api/categories")
-async def get_categories(db: Session = Depends(get_db)):
-    """Get all available product categories with counts"""
-    try:
-        from models.product import Product
-        from sqlalchemy import func
-        
-        # Get unique categories with product counts
-        categories = db.query(
-            Product.category,
-            func.count(Product.id).label('count')
-        ).filter(
-            Product.is_active == True,
-            Product.category.isnot(None)
-        ).group_by(Product.category).all()
-        
-        # Format response
-        category_list = [
-            {
-                "id": cat[0].lower().replace(' ', '-'),
-                "name": cat[0],
-                "product_count": cat[1]
-            }
-            for cat in categories
-        ]
-        
-        # Add "All Categories" option
-        total_products = db.query(Product).filter(Product.is_active == True).count()
-        category_list.insert(0, {
-            "id": "all",
-            "name": "All Categories", 
-            "product_count": total_products
-        })
-        
-        return category_list
-        
-    except Exception as e:
-        logger.error(f"Error getting categories: {str(e)}")
-        # Return default categories if database error
-        return [
-            {"id": "all", "name": "All Categories", "product_count": 0},
-            {"id": "electronics", "name": "Electronics", "product_count": 0},
-            {"id": "fashion", "name": "Fashion", "product_count": 0},
-            {"id": "sports", "name": "Sports", "product_count": 0},
-            {"id": "home", "name": "Home & Living", "product_count": 0},
-            {"id": "beauty", "name": "Health & Beauty", "product_count": 0},
-            {"id": "food", "name": "Food & Agriculture", "product_count": 0},
-            {"id": "automotive", "name": "Automotive", "product_count": 0}
-        ]
+# Categories endpoint - Now handled by category router at /api/categories
+# @app.get("/api/categories")
+# async def get_categories(db: Session = Depends(get_db)):
+#     """Get all available product categories with counts"""
+#     # This endpoint is deprecated - use the category router instead for full hierarchy support
+#     pass
 
 # Missing shop-owner dashboard endpoints
 @app.get("/api/shop-owner/dashboard/today-stats")
@@ -368,6 +324,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(shop.router, prefix="/api/shops", tags=["Shops"])
 app.include_router(product.router, prefix="/api/products", tags=["Products"])
+app.include_router(category.router, prefix="/api/categories", tags=["Categories"])
 app.include_router(rating.router, tags=["Ratings"])
 app.include_router(notification.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(notifications.router, prefix="/api/ai-notifications", tags=["AI Notifications"])
@@ -386,6 +343,10 @@ app.include_router(batch_operations.router, prefix="/api", tags=["Batch Operatio
 app.include_router(wishlist.router, prefix="/api", tags=["Wishlist"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(frontend_debug.router, tags=["Frontend Debug"])
+app.include_router(review.router, prefix="/api/reviews", tags=["Reviews"])
+# Temporarily disable WebSocket and online_status routers due to import issues - needs refactoring
+# app.include_router(websocket.router, tags=["WebSocket"])
+# app.include_router(online_status.router, tags=["Online Status"])
 # Temporarily disable upload router due to unicode issues
 # app.include_router(upload.router, prefix="/api/uploads", tags=["File Uploads"])
 

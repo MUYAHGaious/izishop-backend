@@ -82,11 +82,11 @@ class OrderCancellationService:
                         reason="Cancellation window expired (12 hours for processing orders)",
                         time_limit_hours=12
                     )
-            elif order.status == OrderStatus.SHIPPED:
-                # No cancellation for shipped orders
+            elif order.status in [OrderStatus.PICKED_UP, OrderStatus.IN_TRANSIT, OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED]:
+                # No cancellation for shipped/delivered orders
                 return CancellationPolicy(
                     can_cancel=False,
-                    reason="Cannot cancel shipped orders. Please contact support for returns."
+                    reason="Cannot cancel shipped or delivered orders. Please contact support for returns."
                 )
 
             # Calculate refund percentage based on timing

@@ -165,12 +165,13 @@ class ProductReviewBase(BaseModel):
     content: Optional[str] = Field(None, max_length=2000, description="Review content")
 
 class ProductReviewCreate(ProductReviewBase):
-    product_id: str = Field(..., description="ID of the product being reviewed")
+    is_verified_purchase: bool = Field(default=False, description="Whether this is a verified purchase")
 
 class ProductReviewUpdate(BaseModel):
     rating: Optional[int] = Field(None, ge=1, le=5, description="Rating from 1 to 5 stars")
     title: Optional[str] = Field(None, max_length=200, description="Review title")
     content: Optional[str] = Field(None, max_length=2000, description="Review content")
+    is_verified_purchase: Optional[bool] = Field(None, description="Whether this is a verified purchase")
 
 class ProductReviewResponse(ProductReviewBase):
     id: str

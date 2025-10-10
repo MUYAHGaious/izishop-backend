@@ -71,7 +71,7 @@ async def get_user_statistics(
             # Calculate total revenue from completed orders (using uppercase enum values)
             completed_orders = db.query(Order).filter(
                 Order.shop_id == shop_id,
-                Order.status.in_(['DELIVERED', 'SHIPPED', 'IN_TRANSIT', 'PROCESSING', 'COMPLETED'])
+                Order.status.in_(['DELIVERED', 'IN_TRANSIT', 'PROCESSING', 'COMPLETED', 'OUT_FOR_DELIVERY'])
             ).all()
 
             total_revenue = sum(float(order.total_amount) for order in completed_orders)
@@ -79,7 +79,7 @@ async def get_user_statistics(
             # Revenue this month
             completed_orders_this_month = db.query(Order).filter(
                 Order.shop_id == shop_id,
-                Order.status.in_(['DELIVERED', 'SHIPPED', 'IN_TRANSIT', 'PROCESSING', 'COMPLETED']),
+                Order.status.in_(['DELIVERED', 'IN_TRANSIT', 'PROCESSING', 'COMPLETED', 'OUT_FOR_DELIVERY']),
                 Order.created_at >= month_start,
                 Order.created_at <= month_end
             ).all()

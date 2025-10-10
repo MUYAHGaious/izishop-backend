@@ -5,11 +5,11 @@ import json
 import logging
 import asyncio
 
-from ..database import get_db
-from ..models.user import User, UserRole
-from ..models.shop import Shop
-from ..auth import get_current_user_from_token
-from ..services.websocket_service import manager, analytics_ws_service
+from database.connection import get_db
+from models.user import User, UserRole
+from models.shop import Shop
+from services.auth import get_current_user_from_token
+from services.websocket_service import manager, analytics_ws_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ async def websocket_analytics_endpoint(
 async def send_initial_analytics_data(connection_id: str, user: User, shop_id: Optional[int], db: Session):
     """Send initial analytics data when client connects"""
     try:
-        from ..services.analytics_service import analytics_service
+        from services.analytics_service import analytics_service
         from datetime import datetime
         
         # Send connection confirmation
@@ -241,7 +241,7 @@ async def handle_subscription_request(connection_id: str, data: Dict[str, Any], 
 async def handle_chart_data_request(connection_id: str, data: Dict[str, Any], user: User, db: Session):
     """Handle chart data requests"""
     try:
-        from ..services.analytics_service import analytics_service
+        from services.analytics_service import analytics_service
         from datetime import datetime
         
         metric_type = data.get("metric_type")
@@ -285,7 +285,7 @@ async def handle_chart_data_request(connection_id: str, data: Dict[str, Any], us
 async def handle_forecast_request(connection_id: str, data: Dict[str, Any], user: User, db: Session):
     """Handle forecast requests"""
     try:
-        from ..services.analytics_service import analytics_service
+        from services.analytics_service import analytics_service
         from datetime import datetime
         
         metric_type = data.get("metric_type")
@@ -327,7 +327,7 @@ async def handle_forecast_request(connection_id: str, data: Dict[str, Any], user
 async def handle_anomaly_acknowledgment(connection_id: str, data: Dict[str, Any], user: User, db: Session):
     """Handle anomaly acknowledgment"""
     try:
-        from ..models.analytics import AnomalyDetection
+        from models.analytics import AnomalyDetection
         from datetime import datetime
         
         detection_id = data.get("detection_id")

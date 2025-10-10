@@ -512,7 +512,7 @@ def create_product_review_endpoint(
             db=db,
             product_id=product_id,
             user_id=current_user.id,
-            review_data=review_data.dict()
+            review_data=review_data.model_dump()
         )
         return ProductReviewResponse.from_orm(review)
     except ResourceNotFoundError as e:

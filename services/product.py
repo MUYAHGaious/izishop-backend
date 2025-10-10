@@ -179,10 +179,28 @@ def get_products_for_catalog(
         lite_products = []
         transformation_errors = []
 
+        # Optimize: Fetch all shop info in ONE query instead of N+1
+        from models.shop import Shop
+        seller_ids = [p.seller_id for p in products if p.seller_id]
+        shops_map = {}
+
+        if seller_ids:
+            shops = db.query(
+                Shop.id,
+                Shop.owner_id,
+                Shop.name,
+                Shop.is_verified,
+                Shop.average_rating,
+                Shop.total_reviews,
+                Shop.address
+            ).filter(Shop.owner_id.in_(seller_ids)).all()
+
+            # Create a map for fast lookup
+            shops_map = {shop.owner_id: shop for shop in shops}
+            logger.info(f"🏪 Fetched {len(shops_map)} shops in single query")
+
         for i, product in enumerate(products):
             try:
-                logger.info(f"🔄 Processing product {i+1}/{len(products)}: id={product.id}, name={product.name}")
-
                 # Extract only the first image URL to save memory
                 image_url = None
                 image_count = 0
@@ -191,45 +209,26 @@ def get_products_for_catalog(
                 if product.image_urls:
                     try:
                         import json
-                        logger.info(f"🖼️ Raw image_urls for product {product.id}: type={type(product.image_urls)}, value={str(product.image_urls)[:200]}...")
-
                         if isinstance(product.image_urls, str):
                             urls = json.loads(product.image_urls)
-                            logger.info(f"📜 Parsed URLs from JSON string: {urls}")
                         else:
                             urls = product.image_urls
-                            logger.info(f"📜 Direct URLs (not JSON): {urls}")
 
                         if urls and len(urls) > 0:
-                            # Handle base64 images by creating a proper endpoint URL
                             first_url = urls[0]
-                            logger.info(f"🎯 First URL: {first_url[:100]}...")
-
                             if first_url.startswith('data:'):
-                                # Create a proper image endpoint URL for base64 images
                                 image_url = f'/api/products/{product.id}/image/0'
-                                logger.info(f"🔗 Created endpoint URL for base64: {image_url}")
                             else:
                                 image_url = first_url
-                                logger.info(f"🔗 Using direct URL: {image_url}")
                             image_count = len(urls)
                         else:
-                            logger.warning(f"⚠️ Empty or null URLs array for product {product.id}")
                             image_url = '/api/placeholder/300/300'
                             image_count = 0
-
-                    except json.JSONDecodeError as e:
-                        logger.error(f"❌ JSON decode error for product {product.id} image_urls: {e}")
-                        image_url = '/api/placeholder/300/300'
-                        image_count = 0
-                        transformation_errors.append(f"JSON decode error for product {product.id}: {e}")
                     except Exception as e:
-                        logger.error(f"❌ Unexpected error processing image URLs for product {product.id}: {e}", exc_info=True)
                         image_url = '/api/placeholder/300/300'
                         image_count = 0
                         transformation_errors.append(f"Image processing error for product {product.id}: {e}")
                 else:
-                    logger.info(f"ℹ️ No image_urls for product {product.id}")
                     image_url = '/api/placeholder/300/300'
                     image_count = 0
 
@@ -243,44 +242,20 @@ def get_products_for_catalog(
                         has_video = bool(video_urls and len(video_urls) > 0)
                     except:
                         has_video = False
-            
-                # Get shop information for this product
+
+                # Get shop information from pre-fetched map
                 shop_info = {}
-                if product.seller_id:
-                    try:
-                        from models.shop import Shop
-                        logger.info(f"🏪 Fetching shop info for seller_id: {product.seller_id}")
-
-                        # Only select the basic columns that exist in the database
-                        shop = db.query(
-                            Shop.id,
-                            Shop.owner_id,  # IMPORTANT: Need this for messaging!
-                            Shop.name,
-                            Shop.is_verified,
-                            Shop.average_rating,
-                            Shop.total_reviews,
-                            Shop.address
-                        ).filter(Shop.owner_id == product.seller_id).first()
-
-                        if shop:
-                            shop_info = {
-                                'shop_id': shop.id,
-                                'shop_owner_id': shop.owner_id,  # CRITICAL: This is the user ID to message!
-                                'shop_name': shop.name,
-                                'shop_verified': shop.is_verified,
-                                'shop_rating': shop.average_rating,
-                                'shop_reviews': shop.total_reviews,
-                                'shop_location': shop.address or 'Cameroon'
-                            }
-                            logger.info(f"🏪 Shop info found: {shop_info}")
-                        else:
-                            logger.warning(f"⚠️ No shop found for seller_id: {product.seller_id}")
-
-                    except Exception as e:
-                        logger.error(f"❌ Failed to get shop info for product {product.id}, seller_id {product.seller_id}: {e}", exc_info=True)
-                        transformation_errors.append(f"Shop info error for product {product.id}: {e}")
-                else:
-                    logger.warning(f"⚠️ No seller_id for product {product.id}")
+                if product.seller_id and product.seller_id in shops_map:
+                    shop = shops_map[product.seller_id]
+                    shop_info = {
+                        'shop_id': shop.id,
+                        'shop_owner_id': shop.owner_id,
+                        'shop_name': shop.name,
+                        'shop_verified': shop.is_verified,
+                        'shop_rating': shop.average_rating,
+                        'shop_reviews': shop.total_reviews,
+                        'shop_location': shop.address or 'Cameroon'
+                    }
             
                 # Create lite product with comprehensive error handling
                 try:
@@ -309,7 +284,6 @@ def get_products_for_catalog(
                             logger.warning(f"⚠️ Missing required field '{field}' for product {product.id}")
 
                     lite_products.append(lite_product)
-                    logger.info(f"✅ Successfully transformed product {product.id} to lite format")
 
                 except Exception as e:
                     logger.error(f"❌ Failed to create lite product for {product.id}: {e}", exc_info=True)
