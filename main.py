@@ -5,6 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from database.connection import create_tables, get_db
+import sys
 # Import all models to ensure they're registered with SQLAlchemy
 from models import user, shop, product, order, subscription, analytics, casual_listing, review, chat, contacts
 from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug, tranzak_webhooks, casual_listings, transaction_fees, delivery_partner, subscription_management, analytics, batch_operations, wishlist, chat, order_optimized, frontend_debug, category, review
@@ -32,11 +33,19 @@ from core.response import error_response
 from core.file_logger import file_logger
 from core.logging_middleware import LoggingMiddleware
 
-# Configure logging
+# Configure logging with UTF-8 encoding
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
 )
+
+# Ensure all loggers use UTF-8 encoding
+for handler in logging.root.handlers:
+    if hasattr(handler, 'stream') and hasattr(handler.stream, 'encoding'):
+        handler.stream.reconfigure(encoding='utf-8')
 logger = logging.getLogger(__name__)
 
 app = FastAPI(

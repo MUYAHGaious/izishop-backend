@@ -309,12 +309,18 @@ class RequestLoggingMiddleware(SecurityMiddleware):
         """Log request details"""
         start_time = time.time()
         
-        # Log request
-        logger.info(
-            f"Request: {request.method} {request.url.path} "
-            f"from {request.client.host} "
-            f"User-Agent: {request.headers.get('User-Agent', 'Unknown')}"
-        )
+        # Log request with proper encoding
+        try:
+            user_agent = request.headers.get('User-Agent', 'Unknown')
+            # Sanitize user agent to prevent encoding issues
+            user_agent = user_agent.encode('utf-8', errors='replace').decode('utf-8')
+            logger.info(
+                f"Request: {request.method} {request.url.path} "
+                f"from {request.client.host} "
+                f"User-Agent: {user_agent}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to log request details: {str(e)}")
         
         # Process request
         response = await call_next(request)
@@ -322,12 +328,15 @@ class RequestLoggingMiddleware(SecurityMiddleware):
         # Calculate processing time
         process_time = time.time() - start_time
         
-        # Log response
-        logger.info(
-            f"Response: {request.method} {request.url.path} "
-            f"Status: {response.status_code} "
-            f"Time: {process_time:.3f}s"
-        )
+        # Log response with proper encoding
+        try:
+            logger.info(
+                f"Response: {request.method} {request.url.path} "
+                f"Status: {response.status_code} "
+                f"Time: {process_time:.3f}s"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to log response details: {str(e)}")
         
         # Add processing time header
         response.headers["X-Process-Time"] = str(process_time)
