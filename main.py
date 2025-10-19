@@ -48,6 +48,30 @@ for handler in logging.root.handlers:
         handler.stream.reconfigure(encoding='utf-8')
 logger = logging.getLogger(__name__)
 
+# Configure system encoding for HTTP responses
+import os
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
+# Custom response handler to ensure UTF-8 encoding
+from fastapi.responses import Response
+from fastapi import Request
+from typing import Any
+
+class UTF8Response(Response):
+    def __init__(self, content: Any = None, *args, **kwargs):
+        # Ensure content is properly encoded as UTF-8
+        if content is not None:
+            if isinstance(content, str):
+                content = content.encode('utf-8')
+            elif isinstance(content, bytes):
+                try:
+                    content = content.decode('utf-8').encode('utf-8')
+                except UnicodeDecodeError:
+                    content = content.decode('utf-8', errors='replace').encode('utf-8')
+        
+        super().__init__(content, *args, **kwargs)
+        self.headers['Content-Type'] = 'application/json; charset=utf-8'
+
 app = FastAPI(
     title="Izishop Backend API",
     description="Backend API for Izishop e-commerce platform",
@@ -59,6 +83,30 @@ file_logger.log_startup()
 
 # Add logging middleware (MUST be first to capture all requests)
 app.add_middleware(LoggingMiddleware)
+
+# Add UTF-8 encoding middleware
+@app.middleware("http")
+async def utf8_encoding_middleware(request: Request, call_next):
+    response = await call_next(request)
+    
+    # Ensure response has UTF-8 charset
+    if 'content-type' in response.headers:
+        content_type = response.headers['content-type']
+        if 'charset=' not in content_type:
+            response.headers['content-type'] = f"{content_type}; charset=utf-8"
+    else:
+        response.headers['content-type'] = 'application/json; charset=utf-8'
+    
+    return response
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify your frontend domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Global exception handler for custom exceptions
 @app.exception_handler(BaseCustomException)
