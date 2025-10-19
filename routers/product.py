@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import logging
 import base64
+import binascii
 import json
 
 from database.connection import get_db
@@ -596,25 +597,52 @@ async def get_product_image(
         
         # Handle base64 images
         if image_url.startswith('data:'):
-            # Extract base64 data
-            header, data = image_url.split(',', 1)
-            # Extract content type
-            content_type = header.split(':')[1].split(';')[0]
-            
-            # Decode base64
-            image_data = base64.b64decode(data)
-            
-            return Response(
-                content=image_data,
-                media_type=content_type,
-                headers={"Cache-Control": "public, max-age=3600"}
-            )
+            try:
+                # Extract base64 data
+                header, data = image_url.split(',', 1)
+                # Ensure header indicates base64
+                if ';base64' not in header:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Invalid data URL format"
+                    )
+
+                # Extract content type
+                content_type = header.split(':')[1].split(';')[0]
+
+                # Enforce a sane size limit (e.g., 5 MB) to avoid abuse
+                approx_bytes = (len(data) * 3) // 4
+                if approx_bytes > 5 * 1024 * 1024:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail="Image too large"
+                    )
+
+                # Decode base64 safely (validate padding and alphabet)
+                image_data = base64.b64decode(data, validate=True)
+
+                return Response(
+                    content=image_data,
+                    media_type=content_type,
+                    headers={"Cache-Control": "public, max-age=3600"}
+                )
+            except (ValueError, binascii.Error):
+                # Invalid base64 content
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid base64 image data"
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error decoding base64 image: {str(e)}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to process image"
+                )
         else:
-            # For regular URLs, redirect to the URL
-            raise HTTPException(
-                status_code=status.HTTP_302_FOUND,
-                detail=f"Redirect to {image_url}"
-            )
+            # For regular URLs, return a proper redirect response
+            return RedirectResponse(url=image_url, status_code=status.HTTP_302_FOUND)
             
     except HTTPException:
         raise
