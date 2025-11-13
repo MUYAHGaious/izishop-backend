@@ -15,10 +15,13 @@ from models.order import Order, OrderStatus, OrderItem, PaymentStatus, OrderStat
 from models.shop import Shop
 from models.user import User
 from models.product import Product
+from models.casual_listing import CasualListing
 import uuid
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Updated to support casual marketplace listings
 
 # Optimized schemas
 class OrderItemRequest(BaseModel):
@@ -103,7 +106,7 @@ class CustomerOrdersResponse(BaseModel):
         from_attributes = True
 
 @router.post("/create", response_model=OptimizedOrderResponse, status_code=http_status.HTTP_201_CREATED)
-def create_order_optimized(
+async def create_order_optimized(
     order_request: CreateOrderRequest,
     current_user: UserResponse = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -120,47 +123,85 @@ def create_order_optimized(
         total_amount = 0
 
         for item_request in order_request.items:
-            # Get product with shop information in one query
+            # Try to get product from regular products first
             product = db.query(Product).filter(
                 Product.id == item_request.product_id,
                 Product.is_active == True
             ).first()
 
+            # If not found in products, try casual listings
+            casual_listing = None
+            is_casual = False
             if not product:
-                raise HTTPException(
-                    status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"Product {item_request.product_id} not found or inactive"
-                )
+                casual_listing = db.query(CasualListing).filter(
+                    CasualListing.id == item_request.product_id,
+                    CasualListing.status == "active"
+                ).first()
+
+                if not casual_listing:
+                    raise HTTPException(
+                        status_code=http_status.HTTP_404_NOT_FOUND,
+                        detail=f"Product {item_request.product_id} not found or inactive"
+                    )
+                is_casual = True
+
+            # Get product details based on type
+            if is_casual:
+                product_name = casual_listing.title
+                product_price = casual_listing.price
+                product_stock = 1  # Casual listings are one-of-a-kind
+                seller_id = casual_listing.seller_id
+                product_image = casual_listing.image_urls[0] if casual_listing.image_urls else None
+            else:
+                product_name = product.name
+                product_price = product.price
+                product_stock = product.stock_quantity
+                seller_id = product.seller_id
+                product_image = product.images[0] if product.images else None
 
             # Validate stock
-            if product.stock_quantity < item_request.quantity:
+            if product_stock < item_request.quantity:
                 raise HTTPException(
                     status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail=f"Insufficient stock for {product.name}. Available: {product.stock_quantity}, Requested: {item_request.quantity}"
+                    detail=f"Insufficient stock for {product_name}. Available: {product_stock}, Requested: {item_request.quantity}"
                 )
 
             # Get shop information (cached query)
-            if not vendor_groups[product.seller_id]["shop"]:
-                shop = db.query(Shop).filter(Shop.owner_id == product.seller_id).first()
+            # For casual sellers, create a virtual shop entry
+            if not vendor_groups[seller_id]["shop"]:
+                shop = db.query(Shop).filter(Shop.owner_id == seller_id).first()
                 if not shop:
-                    raise HTTPException(
-                        status_code=http_status.HTTP_400_BAD_REQUEST,
-                        detail=f"Shop not found for product {product.name}"
-                    )
-                vendor_groups[product.seller_id]["shop"] = shop
+                    # For casual sellers without a shop, create a virtual shop representation
+                    if is_casual:
+                        seller = db.query(User).filter(User.id == seller_id).first()
+                        vendor_groups[seller_id]["shop"] = {
+                            "id": seller_id,
+                            "name": f"{seller.first_name} {seller.last_name}".strip() if seller else "Individual Seller",
+                            "is_casual_seller": True
+                        }
+                    else:
+                        raise HTTPException(
+                            status_code=http_status.HTTP_400_BAD_REQUEST,
+                            detail=f"Shop not found for product {product_name}"
+                        )
+                else:
+                    vendor_groups[seller_id]["shop"] = shop
 
             # Calculate item total
-            item_total = float(product.price) * item_request.quantity
+            item_total = float(product_price) * item_request.quantity
             total_amount += item_total
 
             # Add to vendor group
-            vendor_groups[product.seller_id]["items"].append({
-                "product": product,
+            vendor_groups[seller_id]["items"].append({
+                "product": product if not is_casual else casual_listing,
+                "is_casual": is_casual,
                 "quantity": item_request.quantity,
-                "unit_price": float(product.price),
-                "total_price": item_total
+                "unit_price": float(product_price),
+                "total_price": item_total,
+                "product_name": product_name,
+                "product_image": product_image
             })
-            vendor_groups[product.seller_id]["subtotal"] += item_total
+            vendor_groups[seller_id]["subtotal"] += item_total
 
         # Step 2: Determine order type and create accordingly
         vendor_count = len(vendor_groups)
@@ -169,9 +210,9 @@ def create_order_optimized(
         logger.info(f"📊 Order analysis: {vendor_count} vendors detected, multi-vendor: {is_multi_vendor}")
 
         if is_multi_vendor:
-            return _create_multi_vendor_order(db, current_user, order_request, vendor_groups, total_amount)
+            return await _create_multi_vendor_order(db, current_user, order_request, vendor_groups, total_amount)
         else:
-            return _create_single_vendor_order(db, current_user, order_request, vendor_groups, total_amount)
+            return await _create_single_vendor_order(db, current_user, order_request, vendor_groups, total_amount)
 
     except HTTPException:
         db.rollback()
@@ -184,7 +225,7 @@ def create_order_optimized(
             detail="Failed to create order"
         )
 
-def _create_single_vendor_order(
+async def _create_single_vendor_order(
     db: Session,
     current_user: UserResponse,
     order_request: CreateOrderRequest,
@@ -199,10 +240,15 @@ def _create_single_vendor_order(
     vendor_data = vendor_groups[vendor_id]
     shop = vendor_data["shop"]
 
+    # Check if shop is a dict (casual seller) or Shop object
+    is_casual_seller = isinstance(shop, dict) and shop.get("is_casual_seller", False)
+    shop_id = shop["id"] if is_casual_seller else shop.id
+    shop_name = shop["name"] if is_casual_seller else shop.name
+
     # Create order
     order = Order(
         customer_id=current_user.id,
-        shop_id=shop.id,
+        shop_id=shop_id,
         total_amount=total_amount,
         status=OrderStatus.PENDING,
         payment_status=PaymentStatus.PENDING,
@@ -225,23 +271,31 @@ def _create_single_vendor_order(
         )
         db.add(order_item)
 
-        # Update stock
-        item_data["product"].stock_quantity -= item_data["quantity"]
+        # Update stock based on product type
+        if item_data.get("is_casual", False):
+            # For casual listings, mark as sold
+            item_data["product"].status = "sold"
+            item_data["product"].sold_at = datetime.utcnow()
+        else:
+            # For regular products, decrease stock
+            item_data["product"].stock_quantity -= item_data["quantity"]
 
         # Build response item
         items_response.append(OrderItemResponse(
             id=str(uuid.uuid4()),  # Temporary ID for response
             product_id=item_data["product"].id,
-            product_name=item_data["product"].name,
+            product_name=item_data.get("product_name", "Unknown Product"),
+            product_image=item_data.get("product_image"),
             quantity=item_data["quantity"],
             unit_price=item_data["unit_price"],
             total_price=item_data["total_price"],
-            shop_id=shop.id,
-            shop_name=shop.name
+            shop_id=shop_id,
+            shop_name=shop_name
         ))
 
-    # Send notification to shop owner
-    _send_vendor_notification(db, shop, order, len(vendor_data["items"]))
+    # Send notification to shop owner (skip for casual sellers for now)
+    if not is_casual_seller:
+        _send_vendor_notification(db, shop, order, len(vendor_data["items"]))
 
     db.commit()
     db.refresh(order)
@@ -260,12 +314,12 @@ def _create_single_vendor_order(
         shipping_address=order.shipping_address,
         created_at=order.created_at.isoformat(),
         order_type="single_vendor",
-        shop_id=shop.id,
-        shop_name=shop.name,
+        shop_id=shop_id,
+        shop_name=shop_name,
         items=items_response
     )
 
-def _create_multi_vendor_order(
+async def _create_multi_vendor_order(
     db: Session,
     current_user: UserResponse,
     order_request: CreateOrderRequest,
@@ -296,10 +350,16 @@ def _create_multi_vendor_order(
     for vendor_id, vendor_data in vendor_groups.items():
         shop = vendor_data["shop"]
 
+        # Check if shop is a dict (casual seller) or Shop object
+        is_casual_seller = isinstance(shop, dict) and shop.get("is_casual_seller", False)
+        shop_id = shop["id"] if is_casual_seller else shop.id
+        shop_name = shop["name"] if is_casual_seller else shop.name
+        shop_owner_id = shop["id"] if is_casual_seller else shop.owner_id
+
         # Create vendor-specific order
         vendor_order = Order(
             customer_id=current_user.id,
-            shop_id=shop.id,
+            shop_id=shop_id,
             total_amount=vendor_data["subtotal"],
             status=OrderStatus.PENDING,
             payment_status=PaymentStatus.PENDING,
@@ -322,35 +382,44 @@ def _create_multi_vendor_order(
             )
             db.add(order_item)
 
-            # Update stock
-            item_data["product"].stock_quantity -= item_data["quantity"]
+            # Update stock based on product type
+            if item_data.get("is_casual", False):
+                # For casual listings, mark as sold
+                item_data["product"].status = "sold"
+                item_data["product"].sold_at = datetime.utcnow()
+            else:
+                # For regular products, decrease stock
+                item_data["product"].stock_quantity -= item_data["quantity"]
+
             total_items += item_data["quantity"]
 
             # Build response item
             items_response.append(OrderItemResponse(
                 id=str(uuid.uuid4()),  # Temporary ID for response
                 product_id=item_data["product"].id,
-                product_name=item_data["product"].name,
+                product_name=item_data.get("product_name", "Unknown Product"),
+                product_image=item_data.get("product_image"),
                 quantity=item_data["quantity"],
                 unit_price=item_data["unit_price"],
                 total_price=item_data["total_price"],
-                shop_id=shop.id,
-                shop_name=shop.name
+                shop_id=shop_id,
+                shop_name=shop_name
             ))
 
-        # Send notification to vendor
-        _send_vendor_notification(db, shop, vendor_order, len(vendor_data["items"]))
+        # Send notification to vendor (skip for casual sellers)
+        if not is_casual_seller:
+            _send_vendor_notification(db, shop, vendor_order, len(vendor_data["items"]))
 
         # Get shop owner info
-        shop_owner = db.query(User).filter(User.id == shop.owner_id).first()
+        shop_owner = db.query(User).filter(User.id == shop_owner_id).first() if not is_casual_seller else None
         customer = db.query(User).filter(User.id == current_user.id).first()
 
         # Build vendor order response
         vendor_orders_response.append(VendorOrderResponse(
             id=vendor_order.id,
-            shop_id=shop.id,
-            shop_name=shop.name,
-            shop_owner_id=shop.owner_id,
+            shop_id=shop_id,
+            shop_name=shop_name,
+            shop_owner_id=shop_owner_id,
             customer_id=vendor_order.customer_id,
             customer_name=f"{customer.first_name} {customer.last_name}" if customer else "Unknown Customer",
             customer_email=customer.email if customer else "unknown@email.com",
@@ -576,17 +645,32 @@ def get_customer_orders_optimized(
 
                 items_response = []
                 for item in order_items:
+                    # Try to get product from regular products first
                     product = db.query(Product).filter(Product.id == item.product_id).first()
-                    # Get first image from image_urls array
-                    product_image = None
-                    if product and product.image_urls:
-                        if isinstance(product.image_urls, list) and len(product.image_urls) > 0:
-                            product_image = product.image_urls[0]
+
+                    # If not found, try casual listings
+                    casual_listing = None
+                    if not product:
+                        casual_listing = db.query(CasualListing).filter(CasualListing.id == item.product_id).first()
+
+                    # Get product details based on type
+                    if casual_listing:
+                        product_name = casual_listing.title
+                        product_image = casual_listing.image_urls[0] if casual_listing.image_urls else None
+                    elif product:
+                        product_name = product.name
+                        product_image = None
+                        if product.image_urls:
+                            if isinstance(product.image_urls, list) and len(product.image_urls) > 0:
+                                product_image = product.image_urls[0]
+                    else:
+                        product_name = "Unknown Product"
+                        product_image = None
 
                     items_response.append(OrderItemResponse(
                         id=item.id,
                         product_id=item.product_id,
-                        product_name=product.name if product else "Unknown Product",
+                        product_name=product_name,
                         product_image=product_image,
                         quantity=item.quantity,
                         unit_price=float(item.unit_price),
@@ -626,17 +710,32 @@ def get_customer_orders_optimized(
 
                     items_response = []
                     for item in vendor_items:
+                        # Try to get product from regular products first
                         product = db.query(Product).filter(Product.id == item.product_id).first()
-                        # Get first image from image_urls array
-                        product_image = None
-                        if product and product.image_urls:
-                            if isinstance(product.image_urls, list) and len(product.image_urls) > 0:
-                                product_image = product.image_urls[0]
+
+                        # If not found, try casual listings
+                        casual_listing = None
+                        if not product:
+                            casual_listing = db.query(CasualListing).filter(CasualListing.id == item.product_id).first()
+
+                        # Get product details based on type
+                        if casual_listing:
+                            product_name = casual_listing.title
+                            product_image = casual_listing.image_urls[0] if casual_listing.image_urls else None
+                        elif product:
+                            product_name = product.name
+                            product_image = None
+                            if product.image_urls:
+                                if isinstance(product.image_urls, list) and len(product.image_urls) > 0:
+                                    product_image = product.image_urls[0]
+                        else:
+                            product_name = "Unknown Product"
+                            product_image = None
 
                         items_response.append(OrderItemResponse(
                             id=item.id,
                             product_id=item.product_id,
-                            product_name=product.name if product else "Unknown Product",
+                            product_name=product_name,
                             product_image=product_image,
                             quantity=item.quantity,
                             unit_price=float(item.unit_price),

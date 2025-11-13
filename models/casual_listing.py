@@ -101,7 +101,11 @@ class CasualListing(Base):
             "sold_at": self.sold_at.isoformat() if self.sold_at else None,
             "sold_price": self.sold_price,
             "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat()
+            "updated_at": self.updated_at.isoformat(),
+            # Add stock fields for compatibility with product detail page
+            # Casual listings are one-of-a-kind items, so stock is always 1 if active, 0 if sold
+            "stock": 1 if self.status == "active" else 0,
+            "stock_quantity": 1 if self.status == "active" else 0
         }
 
 
