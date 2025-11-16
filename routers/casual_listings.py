@@ -19,7 +19,7 @@ from models.casual_listing import CasualListing, CasualListingInquiry, CasualLis
 from models.user import User
 from routers.auth import get_current_user
 
-router = APIRouter(prefix="/casual-listings", tags=["Casual Listings"])
+router = APIRouter(tags=["Casual Listings"])
 # Updated to use optional authentication
 
 # Optional authentication for marketplace endpoints

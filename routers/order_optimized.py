@@ -42,7 +42,7 @@ class OrderItemResponse(BaseModel):
     quantity: int
     unit_price: float
     total_price: float
-    shop_id: str
+    shop_id: Optional[str] = None  # NULL for casual sellers
     shop_name: str
 
     class Config:
@@ -50,7 +50,7 @@ class OrderItemResponse(BaseModel):
 
 class VendorOrderResponse(BaseModel):
     id: str
-    shop_id: str
+    shop_id: str  # Required for vendor orders
     shop_name: str
     shop_owner_id: str
     customer_id: str
@@ -157,7 +157,7 @@ async def create_order_optimized(
                 product_price = product.price
                 product_stock = product.stock_quantity
                 seller_id = product.seller_id
-                product_image = product.images[0] if product.images else None
+                product_image = product.image_urls[0] if product.image_urls else None
 
             # Validate stock
             if product_stock < item_request.quantity:
@@ -242,13 +242,13 @@ async def _create_single_vendor_order(
 
     # Check if shop is a dict (casual seller) or Shop object
     is_casual_seller = isinstance(shop, dict) and shop.get("is_casual_seller", False)
-    shop_id = shop["id"] if is_casual_seller else shop.id
+    shop_id = None if is_casual_seller else shop.id  # NULL for casual sellers
     shop_name = shop["name"] if is_casual_seller else shop.name
 
     # Create order
     order = Order(
         customer_id=current_user.id,
-        shop_id=shop_id,
+        shop_id=shop_id,  # Will be NULL for casual sellers
         total_amount=total_amount,
         status=OrderStatus.PENDING,
         payment_status=PaymentStatus.PENDING,
@@ -262,9 +262,12 @@ async def _create_single_vendor_order(
     # Create order items and update stock
     items_response = []
     for item_data in vendor_data["items"]:
+        # Set product_id or casual_listing_id based on item type
+        is_casual = item_data.get("is_casual", False)
         order_item = OrderItem(
             order_id=order.id,
-            product_id=item_data["product"].id,
+            product_id=None if is_casual else item_data["product"].id,
+            casual_listing_id=item_data["product"].id if is_casual else None,
             quantity=item_data["quantity"],
             unit_price=item_data["unit_price"],
             total_price=item_data["total_price"]
@@ -352,14 +355,14 @@ async def _create_multi_vendor_order(
 
         # Check if shop is a dict (casual seller) or Shop object
         is_casual_seller = isinstance(shop, dict) and shop.get("is_casual_seller", False)
-        shop_id = shop["id"] if is_casual_seller else shop.id
+        shop_id = None if is_casual_seller else shop.id  # NULL for casual sellers
         shop_name = shop["name"] if is_casual_seller else shop.name
         shop_owner_id = shop["id"] if is_casual_seller else shop.owner_id
 
         # Create vendor-specific order
         vendor_order = Order(
             customer_id=current_user.id,
-            shop_id=shop_id,
+            shop_id=shop_id,  # Will be NULL for casual sellers
             total_amount=vendor_data["subtotal"],
             status=OrderStatus.PENDING,
             payment_status=PaymentStatus.PENDING,
@@ -373,9 +376,12 @@ async def _create_multi_vendor_order(
         # Create order items for this vendor
         items_response = []
         for item_data in vendor_data["items"]:
+            # Set product_id or casual_listing_id based on item type
+            is_casual = item_data.get("is_casual", False)
             order_item = OrderItem(
                 order_id=vendor_order.id,
-                product_id=item_data["product"].id,
+                product_id=None if is_casual else item_data["product"].id,
+                casual_listing_id=item_data["product"].id if is_casual else None,
                 quantity=item_data["quantity"],
                 unit_price=item_data["unit_price"],
                 total_price=item_data["total_price"]
@@ -645,13 +651,14 @@ def get_customer_orders_optimized(
 
                 items_response = []
                 for item in order_items:
-                    # Try to get product from regular products first
-                    product = db.query(Product).filter(Product.id == item.product_id).first()
-
-                    # If not found, try casual listings
+                    # Check both product_id and casual_listing_id
+                    product = None
                     casual_listing = None
-                    if not product:
-                        casual_listing = db.query(CasualListing).filter(CasualListing.id == item.product_id).first()
+
+                    if item.product_id:
+                        product = db.query(Product).filter(Product.id == item.product_id).first()
+                    elif item.casual_listing_id:
+                        casual_listing = db.query(CasualListing).filter(CasualListing.id == item.casual_listing_id).first()
 
                     # Get product details based on type
                     if casual_listing:
@@ -710,13 +717,14 @@ def get_customer_orders_optimized(
 
                     items_response = []
                     for item in vendor_items:
-                        # Try to get product from regular products first
-                        product = db.query(Product).filter(Product.id == item.product_id).first()
-
-                        # If not found, try casual listings
+                        # Check both product_id and casual_listing_id
+                        product = None
                         casual_listing = None
-                        if not product:
-                            casual_listing = db.query(CasualListing).filter(CasualListing.id == item.product_id).first()
+
+                        if item.product_id:
+                            product = db.query(Product).filter(Product.id == item.product_id).first()
+                        elif item.casual_listing_id:
+                            casual_listing = db.query(CasualListing).filter(CasualListing.id == item.casual_listing_id).first()
 
                         # Get product details based on type
                         if casual_listing:

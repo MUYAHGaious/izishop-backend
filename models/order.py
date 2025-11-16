@@ -94,7 +94,8 @@ class OrderItem(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     order_id = Column(String, ForeignKey("orders.id"), nullable=False, index=True)
-    product_id = Column(String, ForeignKey("products.id"), nullable=False, index=True)
+    product_id = Column(String, ForeignKey("products.id"), nullable=True, index=True)  # Nullable for casual listings
+    casual_listing_id = Column(String, ForeignKey("casual_listings.id"), nullable=True, index=True)  # For casual marketplace
     quantity = Column(Integer, nullable=False)
     unit_price = Column(Numeric(10, 2), nullable=False)
     total_price = Column(Numeric(10, 2), nullable=False)
