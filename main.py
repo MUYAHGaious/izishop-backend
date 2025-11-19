@@ -84,6 +84,28 @@ file_logger.log_startup()
 # Add logging middleware (MUST be first to capture all requests)
 app.add_middleware(LoggingMiddleware)
 
+# EMERGENCY FIX: Handle OPTIONS preflight BEFORE any validation
+# This middleware executes LAST in the chain (added first = executes last)
+# ensuring it's the final handler for OPTIONS requests
+@app.middleware("http")
+async def options_preflight_handler(request: Request, call_next):
+    """Handle CORS preflight OPTIONS requests before any validation"""
+    if request.method == "OPTIONS":
+        from fastapi.responses import Response
+        response = Response(status_code=200)
+
+        # Add CORS headers for preflight
+        origin = request.headers.get("origin", "*")
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Accept-Language, X-Request-ID"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Max-Age"] = "86400"
+
+        return response
+
+    return await call_next(request)
+
 # Add UTF-8 encoding middleware
 @app.middleware("http")
 async def utf8_encoding_middleware(request: Request, call_next):

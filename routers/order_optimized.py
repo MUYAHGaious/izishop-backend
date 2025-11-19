@@ -36,7 +36,8 @@ class CreateOrderRequest(BaseModel):
 
 class OrderItemResponse(BaseModel):
     id: str
-    product_id: str
+    product_id: str  # Unified ID - references either products.id or casual_listings.id
+    product_type: str  # "regular" or "casual" - identifies which table the product_id references
     product_name: str
     product_image: Optional[str] = None
     quantity: int
@@ -50,7 +51,7 @@ class OrderItemResponse(BaseModel):
 
 class VendorOrderResponse(BaseModel):
     id: str
-    shop_id: str  # Required for vendor orders
+    shop_id: Optional[str] = None  # NULL for casual sellers without shops
     shop_name: str
     shop_owner_id: str
     customer_id: str
@@ -287,6 +288,7 @@ async def _create_single_vendor_order(
         items_response.append(OrderItemResponse(
             id=str(uuid.uuid4()),  # Temporary ID for response
             product_id=item_data["product"].id,
+            product_type="casual" if item_data.get("is_casual", False) else "regular",
             product_name=item_data.get("product_name", "Unknown Product"),
             product_image=item_data.get("product_image"),
             quantity=item_data["quantity"],
@@ -403,6 +405,7 @@ async def _create_multi_vendor_order(
             items_response.append(OrderItemResponse(
                 id=str(uuid.uuid4()),  # Temporary ID for response
                 product_id=item_data["product"].id,
+                product_type="casual" if item_data.get("is_casual", False) else "regular",
                 product_name=item_data.get("product_name", "Unknown Product"),
                 product_image=item_data.get("product_image"),
                 quantity=item_data["quantity"],
@@ -560,11 +563,38 @@ def get_shop_owner_orders_optimized(
 
             items_response = []
             for item in order_items:
-                product = db.query(Product).filter(Product.id == item.product_id).first()
+                # Check both product_id and casual_listing_id
+                product = None
+                casual_listing = None
+
+                if item.product_id:
+                    product = db.query(Product).filter(Product.id == item.product_id).first()
+                elif item.casual_listing_id:
+                    casual_listing = db.query(CasualListing).filter(CasualListing.id == item.casual_listing_id).first()
+
+                # Get product details based on type
+                if casual_listing:
+                    unified_product_id = item.casual_listing_id
+                    product_type = "casual"
+                    product_name = casual_listing.title
+                    product_image = casual_listing.image_urls[0] if casual_listing.image_urls else None
+                elif product:
+                    unified_product_id = item.product_id
+                    product_type = "regular"
+                    product_name = product.name
+                    product_image = product.image_urls[0] if product.image_urls and len(product.image_urls) > 0 else None
+                else:
+                    unified_product_id = item.product_id or item.casual_listing_id or "unknown"
+                    product_type = "unknown"
+                    product_name = "Product No Longer Available"
+                    product_image = None
+
                 items_response.append(OrderItemResponse(
                     id=item.id,
-                    product_id=item.product_id,
-                    product_name=product.name if product else "Unknown Product",
+                    product_id=unified_product_id,
+                    product_type=product_type,
+                    product_name=product_name,
+                    product_image=product_image,
                     quantity=item.quantity,
                     unit_price=float(item.unit_price),
                     total_price=float(item.total_price),
@@ -645,9 +675,13 @@ def get_customer_orders_optimized(
             order_items = db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
 
             # Determine if this is a single or multi-vendor order
-            if order.shop_id:
-                # Single vendor order
-                shop = db.query(Shop).filter(Shop.id == order.shop_id).first()
+            # Orders with shop_id OR orders with NULL shop_id (casual marketplace) are treated as single-vendor
+            # Multi-vendor orders are identified by having notes with "multi-vendor master order"
+            is_multi_vendor = order.notes and "multi-vendor master order" in order.notes.lower()
+
+            if not is_multi_vendor:
+                # Single vendor order (including casual marketplace orders with NULL shop_id)
+                shop = db.query(Shop).filter(Shop.id == order.shop_id).first() if order.shop_id else None
 
                 items_response = []
                 for item in order_items:
@@ -655,36 +689,57 @@ def get_customer_orders_optimized(
                     product = None
                     casual_listing = None
 
+                    # Initialize with fallback values to prevent None errors
+                    unified_product_id = "unknown"
+                    product_type = "unknown"
+                    product_name = "Product No Longer Available"
+                    product_image = None
+                    item_shop_name = "Unknown Shop"
+
                     if item.product_id:
                         product = db.query(Product).filter(Product.id == item.product_id).first()
-                    elif item.casual_listing_id:
+                    if item.casual_listing_id:
                         casual_listing = db.query(CasualListing).filter(CasualListing.id == item.casual_listing_id).first()
 
-                    # Get product details based on type
+                    # Get product details based on type - Industry standard polymorphic pattern
                     if casual_listing:
+                        # Casual marketplace item
+                        unified_product_id = item.casual_listing_id
+                        product_type = "casual"
                         product_name = casual_listing.title
                         product_image = casual_listing.image_urls[0] if casual_listing.image_urls else None
+                        item_shop_name = "Casual Marketplace"
                     elif product:
+                        # Regular product from shop
+                        unified_product_id = item.product_id
+                        product_type = "regular"
                         product_name = product.name
-                        product_image = None
-                        if product.image_urls:
-                            if isinstance(product.image_urls, list) and len(product.image_urls) > 0:
-                                product_image = product.image_urls[0]
+                        product_image = product.image_urls[0] if product.image_urls and len(product.image_urls) > 0 else None
+                        item_shop_name = shop.name if shop else "Unknown Shop"
                     else:
-                        product_name = "Unknown Product"
-                        product_image = None
+                        # Fallback for orphaned items (product deleted)
+                        unified_product_id = item.product_id or item.casual_listing_id or "unknown"
 
                     items_response.append(OrderItemResponse(
                         id=item.id,
-                        product_id=item.product_id,
+                        product_id=unified_product_id,
+                        product_type=product_type,
                         product_name=product_name,
                         product_image=product_image,
                         quantity=item.quantity,
                         unit_price=float(item.unit_price),
                         total_price=float(item.total_price),
-                        shop_id=shop.id if shop else order.shop_id,
-                        shop_name=shop.name if shop else "Unknown Shop"
+                        shop_id=shop.id if shop else None,
+                        shop_name=item_shop_name
                     ))
+
+                # Determine order-level shop name
+                if not shop and any(item.casual_listing_id for item in order_items):
+                    order_shop_name = "Casual Marketplace"
+                elif shop:
+                    order_shop_name = shop.name
+                else:
+                    order_shop_name = "Unknown Shop"
 
                 result.append(OptimizedOrderResponse(
                     order_id=order.id,
@@ -698,7 +753,7 @@ def get_customer_orders_optimized(
                     created_at=order.created_at.isoformat(),
                     order_type="single_vendor",
                     shop_id=order.shop_id,
-                    shop_name=shop.name if shop else "Unknown Shop",
+                    shop_name=order_shop_name,
                     items=items_response
                 ))
             else:
@@ -721,35 +776,48 @@ def get_customer_orders_optimized(
                         product = None
                         casual_listing = None
 
+                        # Initialize with fallback values to prevent None errors
+                        unified_product_id = "unknown"
+                        product_type = "unknown"
+                        product_name = "Product No Longer Available"
+                        product_image = None
+                        item_shop_name = "Unknown Shop"
+
                         if item.product_id:
                             product = db.query(Product).filter(Product.id == item.product_id).first()
-                        elif item.casual_listing_id:
+                        if item.casual_listing_id:
                             casual_listing = db.query(CasualListing).filter(CasualListing.id == item.casual_listing_id).first()
 
-                        # Get product details based on type
+                        # Get product details based on type - Industry standard polymorphic pattern
                         if casual_listing:
+                            # Casual marketplace item
+                            unified_product_id = item.casual_listing_id
+                            product_type = "casual"
                             product_name = casual_listing.title
                             product_image = casual_listing.image_urls[0] if casual_listing.image_urls else None
+                            item_shop_name = "Casual Marketplace"
                         elif product:
+                            # Regular product from shop
+                            unified_product_id = item.product_id
+                            product_type = "regular"
                             product_name = product.name
-                            product_image = None
-                            if product.image_urls:
-                                if isinstance(product.image_urls, list) and len(product.image_urls) > 0:
-                                    product_image = product.image_urls[0]
+                            product_image = product.image_urls[0] if product.image_urls and len(product.image_urls) > 0 else None
+                            item_shop_name = shop.name if shop else "Unknown Shop"
                         else:
-                            product_name = "Unknown Product"
-                            product_image = None
+                            # Fallback for orphaned items
+                            unified_product_id = item.product_id or item.casual_listing_id or "unknown"
 
                         items_response.append(OrderItemResponse(
                             id=item.id,
-                            product_id=item.product_id,
+                            product_id=unified_product_id,
+                            product_type=product_type,
                             product_name=product_name,
                             product_image=product_image,
                             quantity=item.quantity,
                             unit_price=float(item.unit_price),
                             total_price=float(item.total_price),
-                            shop_id=shop.id if shop else vendor_order.shop_id,
-                            shop_name=shop.name if shop else "Unknown Shop"
+                            shop_id=shop.id if shop else None,
+                            shop_name=item_shop_name
                         ))
                         total_items += item.quantity
 

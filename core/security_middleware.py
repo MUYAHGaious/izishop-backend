@@ -252,6 +252,10 @@ class InputValidationMiddleware(SecurityMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Validate and sanitize input"""
         try:
+            # Skip validation for OPTIONS requests (CORS preflight)
+            if request.method == "OPTIONS":
+                return await call_next(request)
+
             # Check query parameters
             for key, value in request.query_params.items():
                 if self._is_suspicious_input(str(value)):
@@ -260,7 +264,7 @@ class InputValidationMiddleware(SecurityMiddleware):
                         status_code=status.HTTP_400_BAD_REQUEST,
                         content={"error": "Invalid input detected"}
                     )
-            
+
             # Check headers
             for key, value in request.headers.items():
                 if self._is_suspicious_input(str(value)):
