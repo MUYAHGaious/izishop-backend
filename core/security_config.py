@@ -72,6 +72,7 @@ class SecuritySettings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"  # Ignore extra fields like MESOMB_* variables
 
     @validator("SECRET_KEY")
     def validate_secret_key(cls, v):

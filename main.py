@@ -8,7 +8,7 @@ from database.connection import create_tables, get_db
 import sys
 # Import all models to ensure they're registered with SQLAlchemy
 from models import user, shop, product, order, subscription, analytics, casual_listing, review, chat, contacts
-from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug, tranzak_webhooks, casual_listings, transaction_fees, delivery_partner, subscription_management, analytics, batch_operations, wishlist, chat, order_optimized, frontend_debug, category, review
+from routers import auth, admin, shop, product, rating, notification, order, shop_owner, notifications, customer, debug, tranzak_webhooks, casual_listings, transaction_fees, delivery_partner, subscription_management, analytics, batch_operations, wishlist, chat, order_optimized, frontend_debug, category, review, mesomb_payment
 # Upload router for image uploads - temporarily disabled
 # from routers import upload
 from routers.auth import get_current_user
@@ -423,6 +423,7 @@ app.include_router(wishlist.router, prefix="/api", tags=["Wishlist"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(frontend_debug.router, tags=["Frontend Debug"])
 app.include_router(review.router, prefix="/api/reviews", tags=["Reviews"])
+app.include_router(mesomb_payment.router, prefix="/api/payments", tags=["MeSomb Payments"])
 # Temporarily disable WebSocket and online_status routers due to import issues - needs refactoring
 # app.include_router(websocket.router, tags=["WebSocket"])
 # app.include_router(online_status.router, tags=["Online Status"])

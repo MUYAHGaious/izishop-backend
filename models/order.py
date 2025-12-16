@@ -50,6 +50,8 @@ class Order(Base):
     total_amount = Column(Numeric(10, 2), nullable=False)
     status = Column(Enum(OrderStatus), default=OrderStatus.PENDING, index=True)
     payment_status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING, index=True)
+    payment_method = Column(String(50), nullable=True)  # e.g., 'mtn_momo', 'orange_money'
+    payment_reference = Column(String(100), nullable=True)  # Transaction ID from payment gateway
     shipping_address = Column(Text, nullable=True)
     tracking_number = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
