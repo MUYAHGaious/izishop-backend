@@ -168,6 +168,25 @@ class OrderStatusService:
             except Exception as e:
                 logger.warning(f"Failed to emit status change event for order {order_id}: {str(e)}")
 
+            # 🚀 AUTOMATIC DELIVERY REQUEST: Trigger Serrand delivery when order is ready
+            try:
+                from services.serrand_delivery_service import SerrandDeliveryService
+                serrand_service = SerrandDeliveryService(self.db)
+                
+                if await serrand_service.should_trigger_delivery(order, new_status):
+                    logger.info(f"🚚 Automatically requesting delivery for order {order_id}")
+                    delivery_result = await serrand_service.create_delivery_request(order)
+                    
+                    if delivery_result.get("success"):
+                        logger.info(f"✅ Delivery requested successfully: {delivery_result.get('tracking_number')}")
+                    else:
+                        logger.warning(f"⚠️ Failed to request delivery: {delivery_result.get('message')}")
+            except ImportError:
+                logger.warning("Serrand delivery service not available")
+            except Exception as e:
+                logger.error(f"Error triggering automatic delivery: {str(e)}", exc_info=True)
+                # Don't fail the status update if delivery request fails
+
             logger.info(f"Order {order_id} status changed from {old_status} to {new_status}")
             return True, "Status updated successfully"
 

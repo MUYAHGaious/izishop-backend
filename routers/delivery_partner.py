@@ -23,11 +23,12 @@ import uuid
 router = APIRouter(prefix="/api/delivery", tags=["delivery-integration"])
 logger = logging.getLogger(__name__)
 
-# Configuration for delivery partner API
-DELIVERY_PARTNER_API_URL = os.getenv('DELIVERY_PARTNER_API_URL', 'https://api.delivery-partner.com')
-DELIVERY_PARTNER_API_KEY = os.getenv('DELIVERY_PARTNER_API_KEY')
-DELIVERY_PARTNER_SECRET = os.getenv('DELIVERY_PARTNER_SECRET')
-DELIVERY_WEBHOOK_SECRET = os.getenv('DELIVERY_WEBHOOK_SECRET')
+# Configuration for delivery partner API (Serrand)
+# Priority: Use SERRAND_* env vars if set, otherwise fall back to DELIVERY_PARTNER_* vars
+DELIVERY_PARTNER_API_URL = os.getenv('SERRAND_API_URL') or os.getenv('DELIVERY_PARTNER_API_URL', 'https://api.serrand.com')
+DELIVERY_PARTNER_API_KEY = os.getenv('SERRAND_API_KEY') or os.getenv('DELIVERY_PARTNER_API_KEY', '')
+DELIVERY_PARTNER_SECRET = os.getenv('SERRAND_API_SECRET') or os.getenv('DELIVERY_PARTNER_SECRET', '')
+DELIVERY_WEBHOOK_SECRET = os.getenv('SERRAND_WEBHOOK_SECRET') or os.getenv('DELIVERY_WEBHOOK_SECRET', '')
 
 async def get_delivery_partner_headers():
     """Get headers for delivery partner API requests"""

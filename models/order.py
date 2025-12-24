@@ -48,6 +48,7 @@ class Order(Base):
     customer_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
     shop_id = Column(String, ForeignKey("shops.id"), nullable=False, index=True)
     total_amount = Column(Numeric(10, 2), nullable=False)
+    delivery_cost = Column(Numeric(10, 2), default=0, nullable=False)
     status = Column(Enum(OrderStatus), default=OrderStatus.PENDING, index=True)
     payment_status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING, index=True)
     payment_method = Column(String(50), nullable=True)  # e.g., 'mtn_momo', 'orange_money'

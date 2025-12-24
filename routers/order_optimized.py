@@ -33,6 +33,9 @@ class CreateOrderRequest(BaseModel):
     shipping_address: str
     payment_method: str = "card"
     notes: Optional[str] = None
+    delivery_cost: Optional[float] = 0
+    delivery_instructions: Optional[str] = None
+    total_amount: Optional[float] = None  # Frontend can send total
 
 class OrderItemResponse(BaseModel):
     id: str
@@ -121,7 +124,11 @@ async def create_order_optimized(
 
         # Step 1: Validate and group items by shop
         vendor_groups = defaultdict(lambda: {"items": [], "subtotal": 0, "shop": None})
-        total_amount = 0
+        items_subtotal = 0
+
+        # Get delivery cost from request, default to 500 (standard delivery)
+        delivery_cost = order_request.delivery_cost if order_request.delivery_cost is not None else 500.0
+        logger.info(f"📦 Delivery cost: {delivery_cost} XAF")
 
         for item_request in order_request.items:
             # Try to get product from regular products first
@@ -190,7 +197,7 @@ async def create_order_optimized(
 
             # Calculate item total
             item_total = float(product_price) * item_request.quantity
-            total_amount += item_total
+            items_subtotal += item_total
 
             # Add to vendor group
             vendor_groups[seller_id]["items"].append({
@@ -204,16 +211,25 @@ async def create_order_optimized(
             })
             vendor_groups[seller_id]["subtotal"] += item_total
 
-        # Step 2: Determine order type and create accordingly
+        # Step 2: Calculate final total including delivery
+        # Use total_amount from frontend if provided (includes MoMo charges), otherwise calculate
+        if order_request.total_amount is not None and order_request.total_amount > 0:
+            total_amount = order_request.total_amount
+            logger.info(f"💰 Using frontend total_amount: {total_amount} XAF (includes MoMo charges)")
+        else:
+            total_amount = items_subtotal + delivery_cost
+            logger.info(f"💰 Calculated total: Items: {items_subtotal} XAF + Delivery: {delivery_cost} XAF = {total_amount} XAF")
+
+        # Step 3: Determine order type and create accordingly
         vendor_count = len(vendor_groups)
         is_multi_vendor = vendor_count > 1
 
         logger.info(f"📊 Order analysis: {vendor_count} vendors detected, multi-vendor: {is_multi_vendor}")
 
         if is_multi_vendor:
-            return await _create_multi_vendor_order(db, current_user, order_request, vendor_groups, total_amount)
+            return await _create_multi_vendor_order(db, current_user, order_request, vendor_groups, total_amount, delivery_cost)
         else:
-            return await _create_single_vendor_order(db, current_user, order_request, vendor_groups, total_amount)
+            return await _create_single_vendor_order(db, current_user, order_request, vendor_groups, total_amount, delivery_cost)
 
     except HTTPException:
         db.rollback()
@@ -231,7 +247,8 @@ async def _create_single_vendor_order(
     current_user: UserResponse,
     order_request: CreateOrderRequest,
     vendor_groups: Dict,
-    total_amount: float
+    total_amount: float,
+    delivery_cost: float
 ) -> OptimizedOrderResponse:
     """Create a single vendor order"""
     logger.info("🏪 Creating single vendor order")
@@ -251,10 +268,11 @@ async def _create_single_vendor_order(
         customer_id=current_user.id,
         shop_id=shop_id,  # Will be NULL for casual sellers
         total_amount=total_amount,
+        delivery_cost=delivery_cost,
         status=OrderStatus.PENDING,
         payment_status=PaymentStatus.PENDING,
         shipping_address=order_request.shipping_address,
-        notes=order_request.notes
+        notes=order_request.notes or order_request.delivery_instructions
     )
 
     db.add(order)
@@ -329,7 +347,8 @@ async def _create_multi_vendor_order(
     current_user: UserResponse,
     order_request: CreateOrderRequest,
     vendor_groups: Dict,
-    total_amount: float
+    total_amount: float,
+    delivery_cost: float
 ) -> OptimizedOrderResponse:
     """Create a multi-vendor order with separate orders per vendor"""
     logger.info(f"🏪🏪 Creating multi-vendor order with {len(vendor_groups)} vendors")
@@ -339,10 +358,11 @@ async def _create_multi_vendor_order(
         customer_id=current_user.id,
         shop_id=None,  # No specific shop for master order
         total_amount=total_amount,
+        delivery_cost=delivery_cost,
         status=OrderStatus.PENDING,
         payment_status=PaymentStatus.PENDING,
         shipping_address=order_request.shipping_address,
-        notes=f"Multi-vendor order with {len(vendor_groups)} vendors: {order_request.notes or ''}"
+        notes=f"Multi-vendor order with {len(vendor_groups)} vendors: {order_request.notes or order_request.delivery_instructions or ''}"
     )
 
     db.add(master_order)

@@ -245,11 +245,23 @@ async def initiate_payment(
                     detail=f"Failed to create payment response: {str(e)}"
                 )
         else:
-            # Payment failed or pending
+            # Payment failed, pending, or canceled
             payment_status_str = payment_result.get('status', 'failed')
             message = payment_result.get('message', 'Payment processing')
 
             logger.warning(f"⚠️ Payment status: {payment_status_str} - {message}")
+
+            # Check if payment was canceled by user
+            if payment_status_str == 'canceled':
+                logger.error(f"❌ Payment canceled by user")
+                order.payment_status = PaymentStatus.FAILED
+                order.payment_reference = transaction_id
+                db.commit()
+
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail='Payment was canceled or declined. Please try again.'
+                )
 
             # Check if payment is pending (being processed)
             if payment_status_str == 'pending':

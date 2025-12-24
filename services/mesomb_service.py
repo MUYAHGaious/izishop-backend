@@ -75,6 +75,18 @@ class MeSombService:
             logger.info(f"   Payer: {payer_phone}")
             logger.info(f"   Transaction ID: {transaction_id}")
 
+            # Validate minimum amount (MeSomb requires minimum 100 XAF)
+            MIN_AMOUNT = 100
+            if amount < MIN_AMOUNT:
+                logger.error(f"❌ Amount {amount} XAF is below minimum {MIN_AMOUNT} XAF")
+                return {
+                    'success': False,
+                    'transaction_id': transaction_id,
+                    'status': 'failed',
+                    'error': f'Minimum payment amount is {MIN_AMOUNT} XAF',
+                    'message': f'Payment amount must be at least {MIN_AMOUNT} XAF'
+                }
+
             # Development/Test Mode - Simulate payment
             if self.test_mode or not PYMESOMB_AVAILABLE or not self.operation:
                 logger.warning("🧪 TEST MODE: Simulating MeSomb payment")
@@ -147,12 +159,39 @@ class MeSombService:
                     'mesomb_response': str(response)
                 }
             else:
-                logger.warning("⚠️ Payment pending or failed")
+                # Check if payment was canceled/declined
+                logger.warning("⚠️ Payment not successful - checking status")
+
+                # Try to get status from response
+                status = 'pending'  # Default
+                message = 'Payment is being processed'
+
+                try:
+                    if hasattr(response, 'status'):
+                        response_status = str(response.status).lower()
+                        logger.info(f"   Response status: {response_status}")
+
+                        if 'cancel' in response_status or 'decline' in response_status or 'refused' in response_status:
+                            status = 'canceled'
+                            message = 'Payment was canceled or declined by user'
+                            logger.warning(f"❌ Payment canceled: {response_status}")
+
+                    # Check message for cancellation keywords
+                    if hasattr(response, 'message'):
+                        response_message = str(response.message).lower()
+                        if any(keyword in response_message for keyword in ['cancel', 'decline', 'refuse', 'reject', 'timeout']):
+                            status = 'canceled'
+                            message = 'Payment was canceled or timed out'
+                            logger.warning(f"❌ Payment canceled from message: {response_message}")
+                except Exception as e:
+                    logger.warning(f"Could not extract detailed status: {e}")
+
+                logger.warning(f"⚠️ Payment status: {status} - {message}")
                 return {
                     'success': False,
                     'transaction_id': transaction_id,
-                    'status': 'pending',
-                    'message': 'Payment is being processed',
+                    'status': status,
+                    'message': message,
                     'mesomb_response': str(response)
                 }
 
@@ -163,6 +202,18 @@ class MeSombService:
 
             # Check for authentication errors
             error_msg = str(e).lower()
+
+            # Detect user cancellation/timeout from exception
+            if any(keyword in error_msg for keyword in ['timeout', 'cancelled', 'canceled', 'declined', 'refused', 'reject']):
+                logger.warning(f"❌ Payment canceled/timeout: {error_msg}")
+                return {
+                    'success': False,
+                    'transaction_id': transaction_id,
+                    'status': 'canceled',
+                    'error': str(e),
+                    'message': 'Payment was canceled or timed out'
+                }
+
             if 'auth' in error_msg or 'credential' in error_msg or 'key' in error_msg or 'unauthorized' in error_msg:
                 logger.error("🔑 AUTHENTICATION ERROR: Check your MeSomb API keys!")
                 logger.error(f"   Application Key: {mesomb_settings.MESOMB_APPLICATION_KEY[:10]}...")
